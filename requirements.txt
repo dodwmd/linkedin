@@ -4,7 +4,7 @@ Werkzeug==2.0.1
 flask-cors==3.0.10
 
 # ASGI Server
-uvicorn[standard]==0.17.6
+uvicorn[standard]==0.30.6
 asgiref==3.8.1
 
 # WebSocket Support
