@@ -157,18 +157,39 @@ def register_routes(app):
         crawler_status = "Running" if crawler_state.is_running() else "Stopped"
         mysql_info = get_mysql_info()
         
-        return render_template(
-            'index.html',
-            nats_status=nats_status,
-            nats_error=nats_error,
-            mysql_status=mysql_status,
-            mysql_error=mysql_error,
-            crawler_status=crawler_status,
-            mysql_info=mysql_info,
-            profiles_scanned=mysql_info['profiles_scanned'],
-            companies_scanned=mysql_info['companies_scanned'],
-            logs=list(activity_queue.queue)[-50:]
-        )
+        # Fetch latest profiles and companies
+        mysql_manager = MySQLManager()
+        try:
+            mysql_manager.connect()
+            latest_entries = mysql_manager.execute_query("""
+                (SELECT 'person' as type, name, linkedin_url, created_at
+                 FROM linkedin_people
+                 ORDER BY created_at DESC
+                 LIMIT 10)
+                UNION ALL
+                (SELECT 'company' as type, name, linkedin_url, created_at
+                 FROM linkedin_companies
+                 ORDER BY created_at DESC
+                 LIMIT 10)
+                ORDER BY created_at DESC
+                LIMIT 20
+            """)
+        except Exception as e:
+            log(f"Error fetching latest entries: {str(e)}", "error")
+            latest_entries = []
+        finally:
+            mysql_manager.disconnect()
+
+        return render_template('index.html',
+                               nats_status=nats_status,
+                               nats_error=nats_error,
+                               mysql_status=mysql_status,
+                               mysql_error=mysql_error,
+                               crawler_status=crawler_status,
+                               mysql_info=mysql_info,
+                               latest_entries=latest_entries,
+                               profiles_scanned=mysql_info['profiles_scanned'],
+                               companies_scanned=mysql_info['companies_scanned'])
 
     @app.route('/start_crawler', methods=['POST'])
     def start_crawler_route():

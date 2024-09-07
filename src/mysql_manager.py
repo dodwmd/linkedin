@@ -11,12 +11,16 @@ class MySQLManager:
     def __init__(self):
         self.connection = None
         self.cursor = None
-        self.db_config = {
+        self._db_config = {
             'host': os.getenv('MYSQL_HOST', 'mysql'),
             'database': os.getenv('MYSQL_DATABASE', 'linkedin_db'),
             'user': os.getenv('MYSQL_USER', 'root'),
             'password': os.getenv('MYSQL_PASSWORD', 'rootpassword')
         }
+
+    @property
+    def db_config(self):
+        return self._db_config
 
     def connect(self):
         try:

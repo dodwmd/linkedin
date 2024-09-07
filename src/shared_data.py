@@ -1,13 +1,15 @@
 import queue
 from datetime import datetime
 import threading
+from flask_socketio import SocketIO
+from queue import Queue
 
 # Global variables for statistics
 profiles_scanned = 0
 companies_scanned = 0
 
 # Queue to store crawler activities
-activity_queue = queue.Queue()
+activity_queue = Queue(maxsize=100)
 
 # Status variables for NATS and MySQL connections
 nats_status = "Not connected"
@@ -64,3 +66,6 @@ def set_mysql_status(status):
     global mysql_status
     mysql_status = status
     add_log_entry(f"MySQL status changed to: {status}", "info")
+
+def emit_crawler_update(data):
+    socketio.emit('crawler_update', data, namespace='/crawler')

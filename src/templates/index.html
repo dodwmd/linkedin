@@ -165,9 +165,19 @@
         <div class="card">
             <h2>Crawler Activity Feed</h2>
             <div id="crawler-feed">
-                {% for activity in crawler_activities %}
-                    <p>{{ activity }}</p>
-                {% endfor %}
+                {% if latest_entries %}
+                    {% for entry in latest_entries %}
+                        <p>
+                            {% if 'created_at' in entry and entry['created_at'] %}
+                                [{{ entry['created_at'].strftime('%Y-%m-%d %H:%M:%S') }}]
+                            {% endif %}
+                            Added {{ entry['type'] }}: 
+                            <a href="{{ entry['linkedin_url'] }}" target="_blank">{{ entry['name'] }}</a>
+                        </p>
+                    {% endfor %}
+                {% else %}
+                    <p>No activity to display. The crawler hasn't processed any entries yet.</p>
+                {% endif %}
             </div>
         </div>
 
@@ -191,10 +201,21 @@
         });
 
         socket.on('crawler_update', function(data) {
+            var crawlerFeed = document.getElementById('crawler-feed');
+            
+            // Remove the "No activity" message if it exists
+            var noActivityMessage = crawlerFeed.querySelector('p:only-child');
+            if (noActivityMessage && noActivityMessage.textContent.includes('No activity')) {
+                crawlerFeed.removeChild(noActivityMessage);
+            }
+
             var p = document.createElement('p');
-            p.textContent = data.activity;
+            var timestamp = new Date().toISOString().slice(0, 19).replace('T', ' ');
+            p.innerHTML = `[${timestamp}] Added ${data.type}: <a href="${data.linkedin_url}" target="_blank">${data.name}</a>`;
             crawlerFeed.insertBefore(p, crawlerFeed.firstChild);
-            if (crawlerFeed.childElementCount > 50) {
+
+            // Limit the number of displayed entries
+            if (crawlerFeed.childElementCount > 20) {
                 crawlerFeed.removeChild(crawlerFeed.lastChild);
             }
         });

@@ -1,7 +1,7 @@
 from linkedin_scraper import Person
 import mysql.connector
 from mysql.connector import Error
-from shared_data import log
+from shared_data import log, emit_crawler_update
 from nats_manager import NatsManager
 from linkedin_session import LinkedInSession
 import json
@@ -62,12 +62,23 @@ class PeopleCrawler:
             )
             cursor.execute(query, values)
             connection.commit()
+            
+            # Emit crawler update event
+            await self._emit_crawler_update(person)
         except Error as e:
             log(f"Error inserting person data: {e}", "error")
         finally:
             if connection.is_connected():
                 cursor.close()
                 connection.close()
+
+    async def _emit_crawler_update(self, person):
+        update_data = {
+            "type": "person",
+            "name": person.name,
+            "linkedin_url": person.linkedin_url
+        }
+        emit_crawler_update(update_data)
 
     async def _process_contacts(self, person):
         log(f"Processing contacts for: {person.name}", "debug")

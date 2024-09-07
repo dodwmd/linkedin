@@ -1,15 +1,18 @@
 from linkedin_scraper import Company
 import mysql.connector
 from mysql.connector import Error
-from shared_data import log
+from shared_data import log, emit_crawler_update
 from linkedin_session import LinkedInSession
 from nats_manager import NatsManager
+import json
+
 
 class CompanyCrawler:
     def __init__(self, linkedin_session: LinkedInSession, nats_manager: NatsManager, db_config):
         self.driver = linkedin_session.get_driver()
         self.nats_manager = nats_manager
         self.db_config = db_config
+
 
     async def crawl_company(self, company_url):
         if not await self._is_company_scanned(company_url):
@@ -18,6 +21,7 @@ class CompanyCrawler:
             await self._process_employees(company)
             return company
         return None
+
 
     async def _is_company_scanned(self, company_url):
         try:
@@ -53,12 +57,23 @@ class CompanyCrawler:
             )
             cursor.execute(query, values)
             connection.commit()
+
+            # Emit crawler update event
+            await self._emit_crawler_update(company)
         except Error as e:
             log(f"Error inserting company data: {e}", "error")
         finally:
             if connection.is_connected():
                 cursor.close()
                 connection.close()
+
+    async def _emit_crawler_update(self, company):
+        update_data = {
+            "type": "company",
+            "name": company.name,
+            "linkedin_url": company.linkedin_url
+        }
+        emit_crawler_update(update_data)
 
     async def _process_employees(self, company):
         for employee in company.employees:
