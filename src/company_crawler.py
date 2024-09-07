@@ -2,11 +2,12 @@ from linkedin_scraper import Company
 import mysql.connector
 from mysql.connector import Error
 from shared_data import log
-
+from linkedin_session import LinkedInSession
+from nats_manager import NatsManager
 
 class CompanyCrawler:
-    def __init__(self, driver, nats_manager, db_config):
-        self.driver = driver
+    def __init__(self, linkedin_session: LinkedInSession, nats_manager: NatsManager, db_config):
+        self.driver = linkedin_session.get_driver()
         self.nats_manager = nats_manager
         self.db_config = db_config
 

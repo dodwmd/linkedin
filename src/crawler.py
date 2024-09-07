@@ -6,6 +6,7 @@ from people_crawler import PeopleCrawler
 from linkedin_session import LinkedInSession
 import asyncio
 import json
+import os
 
 
 class LinkedInCrawler:
@@ -13,7 +14,7 @@ class LinkedInCrawler:
         self.nats_manager = nats_manager
         self.mysql_manager = mysql_manager
         self.linkedin_session = linkedin_session
-        self.company_crawler = CompanyCrawler(linkedin_session.get_driver(), nats_manager, mysql_manager.db_config)
+        self.company_crawler = CompanyCrawler(linkedin_session, nats_manager, mysql_manager.db_config)
         self.people_crawler = PeopleCrawler(linkedin_session, nats_manager, mysql_manager.db_config)
 
     async def process_company_queue(self, crawler_state):
@@ -81,9 +82,42 @@ class LinkedInCrawler:
         message = json.dumps({"url": url})
         await self.nats_manager.publish(subject, message)
 
+    async def is_subscription_empty(self, subject):
+        try:
+            _, message = await self.nats_manager.get_message(subject, timeout=1)
+            if message is None:
+                return True
+            else:
+                # If we got a message, put it back in the queue
+                await self.nats_manager.publish(subject, message)
+                return False
+        except Exception as e:
+            log(f"Error checking subscription {subject}: {str(e)}", "error")
+            return True  # Assume empty if there's an error
+
+    async def seed_initial_urls(self):
+        initial_profile_url = os.getenv('INITIAL_PROFILE_URL')
+        initial_company_url = os.getenv('INITIAL_COMPANY_URL')
+
+        if initial_profile_url and await self.is_subscription_empty("linkedin_people_urls"):
+            await self.publish_new_url('people', initial_profile_url)
+            log(f"Seeded initial profile URL: {initial_profile_url}")
+
+        if initial_company_url and await self.is_subscription_empty("linkedin_company_urls"):
+            await self.publish_new_url('company', initial_company_url)
+            log(f"Seeded initial company URL: {initial_company_url}")
+
     async def run(self, crawler_state):
         try:
             await self.nats_manager.connect()
+            
+            # Subscribe to the subjects before seeding
+            await self.nats_manager.subscribe("linkedin_company_urls")
+            await self.nats_manager.subscribe("linkedin_people_urls")
+            
+            # Seed the initial URLs if needed
+            await self.seed_initial_urls()
+
             company_task = asyncio.create_task(self.process_company_queue(crawler_state))
             people_task = asyncio.create_task(self.process_people_queue(crawler_state))
             await asyncio.gather(company_task, people_task)

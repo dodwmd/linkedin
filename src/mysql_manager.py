@@ -11,15 +11,16 @@ class MySQLManager:
     def __init__(self):
         self.connection = None
         self.cursor = None
+        self.db_config = {
+            'host': os.getenv('MYSQL_HOST', 'mysql'),
+            'database': os.getenv('MYSQL_DATABASE', 'linkedin_db'),
+            'user': os.getenv('MYSQL_USER', 'root'),
+            'password': os.getenv('MYSQL_PASSWORD', 'rootpassword')
+        }
 
     def connect(self):
         try:
-            self.connection = mysql.connector.connect(
-                host=os.getenv('MYSQL_HOST', 'mysql'),
-                database=os.getenv('MYSQL_DATABASE', 'linkedin_db'),
-                user=os.getenv('MYSQL_USER', 'root'),
-                password=os.getenv('MYSQL_PASSWORD', 'rootpassword')
-            )
+            self.connection = mysql.connector.connect(**self.db_config)
             if self.connection.is_connected():
                 self.cursor = self.connection.cursor(dictionary=True, buffered=True)
                 log("Successfully connected to MySQL database")
