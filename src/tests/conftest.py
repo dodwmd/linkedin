@@ -1,7 +1,10 @@
 import pytest
 from unittest.mock import patch
-from web_app import create_app
 from tests.mocks import MockNatsManager, MockMySQLManager
+# Add the parent directory to the Python path
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
+from web_app import create_app
 
 
 @pytest.fixture
