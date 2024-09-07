@@ -30,7 +30,7 @@ python-dotenv==0.19.1
 # Testing
 pytest==7.3.1
 pytest-flask==1.2.0
-pytest-asyncio==0.21.0
+pytest-asyncio==0.24.0
 
 # Linting and Type Checking
 flake8==6.0.0
