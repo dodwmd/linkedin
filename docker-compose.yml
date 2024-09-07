@@ -1,0 +1,38 @@
+services:
+  app:
+    build: .
+    image: app_app
+    ports:
+      - "9988:8080"
+    volumes:
+      - ./linkedin_scraper:/app/linkedin_scraper
+    depends_on:
+      - nats
+      - mysql
+    env_file:
+      - .env
+    environment:
+      - NATS_URL=${NATS_URL}
+      - MYSQL_HOST=${MYSQL_HOST}
+      - MYSQL_USER=${MYSQL_USER}
+      - MYSQL_PASSWORD=${MYSQL_PASSWORD}
+      - MYSQL_DATABASE=${MYSQL_DATABASE}
+
+  nats:
+    image: nats:latest
+    ports:
+      - "4222:4222"
+
+  mysql:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./scripts/init.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "3306:3306"
+
+volumes:
+  mysql_data:

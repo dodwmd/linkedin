@@ -1,0 +1,41 @@
+# MySQL Configuration
+MYSQL_HOST=mysql
+MYSQL_USER=root
+MYSQL_PASSWORD=your_mysql_password_here
+MYSQL_DATABASE=linkedin_db
+
+# LinkedIn Credentials
+LINKEDIN_EMAIL=your_linkedin_email@example.com
+LINKEDIN_PASSWORD=your_linkedin_password_here
+
+# Initial URLs
+INITIAL_PROFILE_URL=https://www.linkedin.com/in/example-profile/
+INITIAL_COMPANY_URL=https://www.linkedin.com/company/example-company/
+
+# NATS Configuration
+NATS_URL=nats://nats:4222
+
+# DEBUG Flag
+DEBUG=True
+
+# Python Configuration
+PYTHONUNBUFFERED=1
+PYTHONPATH=/app/src
+
+# Flask Configuration
+FLASK_ENV=development
+FLASK_APP=web_app.py
+
+# Selenium Configuration
+SELENIUM_HOST=selenium
+SELENIUM_PORT=4444
+
+# Logging Configuration
+LOG_LEVEL=INFO
+
+# Rate Limiting (requests per minute)
+RATE_LIMIT=60
+
+# Crawler Behavior
+MAX_DEPTH=3
+MAX_CONNECTIONS_PER_PROFILE=100
