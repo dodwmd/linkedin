@@ -16,7 +16,7 @@ gevent==21.12.0
 eventlet==0.33.3
 
 # Database
-mysql-connector-python==8.0.26
+mysql-connector-python==8.4.0
 
 # Messaging
 nats-py==2.2.0
