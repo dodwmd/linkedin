@@ -13,15 +13,21 @@ class CompanyCrawler:
         self.nats_manager = nats_manager
         self.db_config = db_config
 
-
-    async def crawl_company(self, company_url):
-        if not await self._is_company_scanned(company_url):
-            company = Company(company_url, driver=self.driver)
-            await self._process_company(company)
-            await self._process_employees(company)
-            return company
-        return None
-
+    async def crawl_company(self, company_url, is_seed=False):
+        log(f"Crawling company: {company_url}")
+        try:
+            if not await self._is_company_scanned(company_url) or is_seed:
+                company = Company(company_url, driver=self.driver)
+                await self._process_company(company, is_seed)
+                await self._process_employees(company)
+                log(f"Company processed: {company_url}", "debug")
+                return company
+            else:
+                log(f"Company already scanned, skipping: {company_url}", "debug")
+            return None
+        except Exception as e:
+            log(f"Error crawling company {company_url}: {str(e)}", "error")
+            raise
 
     async def _is_company_scanned(self, company_url):
         try:
@@ -40,16 +46,33 @@ class CompanyCrawler:
                 cursor.close()
                 connection.close()
 
-    async def _process_company(self, company):
+    async def _process_company(self, company, is_seed=False):
         try:
             connection = mysql.connector.connect(**self.db_config)
             cursor = connection.cursor()
-            query = """
-                INSERT INTO linkedin_companies
-                (name, linkedin_url, website, industry, company_size,
-                headquarters, founded, specialties, about)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-            """
+            
+            if is_seed:
+                # Update existing record or insert new one
+                query = """
+                    INSERT INTO linkedin_companies
+                    (name, linkedin_url, website, industry, company_size,
+                    headquarters, founded, specialties, about)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    ON DUPLICATE KEY UPDATE
+                    name = VALUES(name), website = VALUES(website),
+                    industry = VALUES(industry), company_size = VALUES(company_size),
+                    headquarters = VALUES(headquarters), founded = VALUES(founded),
+                    specialties = VALUES(specialties), about = VALUES(about)
+                """
+            else:
+                # Insert new record only
+                query = """
+                    INSERT IGNORE INTO linkedin_companies
+                    (name, linkedin_url, website, industry, company_size,
+                    headquarters, founded, specialties, about)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """
+            
             values = (
                 company.name, company.linkedin_url, company.website,
                 company.industry, company.company_size, company.headquarters,
@@ -82,8 +105,8 @@ class CompanyCrawler:
                     "linkedin_people_urls", json.dumps({"url": employee.linkedin_url})
                 )
 
-    async def run(self, company_url):
-        await self.crawl_company(company_url)
+    async def run(self, company_url, is_seed=False):
+        await self.crawl_company(company_url, is_seed)
 
     async def close(self):
         log("Closing CompanyCrawler...", "debug")

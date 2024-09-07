@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Add New Record to {{ table_name }}</h1>
+<form method="post">
+    {% for column in columns %}
+        {% if column.Field != 'id' %}
+            <div class="form-group">
+                <label for="{{ column.Field }}">{{ column.Field }}</label>
+                <input type="text" class="form-control" id="{{ column.Field }}" name="{{ column.Field }}" required>
+            </div>
+        {% endif %}
+    {% endfor %}
+    <button type="submit" class="btn btn-primary">Add Record</button>
+</form>
+{% endblock %}

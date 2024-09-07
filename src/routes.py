@@ -1,5 +1,5 @@
 from flask import (  # noqa: E501
-    render_template, request, redirect, url_for, jsonify, send_file
+    render_template, request, redirect, url_for, jsonify, send_file, flash
 )
 from shared_data import log, activity_queue
 from mysql_manager import MySQLManager
@@ -10,6 +10,8 @@ import asyncio
 from crawler_manager import start_crawler, stop_crawler, crawler_state
 from contextlib import asynccontextmanager
 from mysql.connector import Error as MySQLError
+import json
+from math import ceil
 
 
 @asynccontextmanager
@@ -152,13 +154,29 @@ def get_mysql_info():
 def register_routes(app):
     @app.route('/', methods=['GET'])
     def index():
-        nats_status, nats_error = check_nats_health_sync()
-        mysql_status, mysql_error = check_mysql_health()
+        nats_manager = NatsManager.get_instance()
+        mysql_manager = MySQLManager()
+
+        try:
+            nats_manager.connect()
+            nats_status = "Connected"
+            nats_error = None
+        except Exception as e:
+            nats_status = "Disconnected"
+            nats_error = str(e)
+
+        try:
+            mysql_manager.connect()
+            mysql_status = "Connected"
+            mysql_error = None
+        except Exception as e:
+            mysql_status = "Disconnected"
+            mysql_error = str(e)
+
         crawler_status = "Running" if crawler_state.is_running() else "Stopped"
         mysql_info = get_mysql_info()
         
         # Fetch latest profiles and companies
-        mysql_manager = MySQLManager()
         try:
             mysql_manager.connect()
             latest_entries = mysql_manager.execute_query("""
@@ -193,20 +211,29 @@ def register_routes(app):
 
     @app.route('/start_crawler', methods=['POST'])
     def start_crawler_route():
-        if start_crawler():
-            return jsonify({"status": "Crawler started successfully"})
-        else:
-            return jsonify({"status": "Crawler is already running"})
+        try:
+            if not crawler_state.is_running():
+                start_crawler()
+                flash('Crawler started successfully', 'success')
+            else:
+                flash('Crawler is already running', 'info')
+            return redirect(url_for('index'))
+        except Exception as e:
+            flash(f'Error starting crawler: {str(e)}', 'error')
+            return redirect(url_for('index'))
 
     @app.route('/stop_crawler', methods=['POST'])
     def stop_crawler_route():
-        if stop_crawler():
-            return jsonify({
-                "status": "Crawler stop requested. "
-                          "It may take a moment to fully stop."
-            })
-        else:
-            return jsonify({"status": "Crawler is not running"})
+        try:
+            if crawler_state.is_running():
+                stop_crawler()
+                flash('Crawler stopped successfully', 'success')
+            else:
+                flash('Crawler is not running', 'info')
+            return redirect(url_for('index'))
+        except Exception as e:
+            flash(f'Error stopping crawler: {str(e)}', 'error')
+            return redirect(url_for('index'))
 
     @app.route('/status', methods=['GET'])
     def status():
@@ -227,86 +254,103 @@ def register_routes(app):
             'mysql_info': mysql_info
         })
 
+    @app.route('/tables')
+    def list_tables():
+        mysql_manager = MySQLManager()
+        try:
+            mysql_manager.connect()
+            tables = mysql_manager.execute_query("SHOW TABLES")
+            return render_template('tables.html', tables=tables)
+        finally:
+            mysql_manager.disconnect()
+
     @app.route('/table/<table_name>')
     def table_view(table_name):
         page = request.args.get('page', 1, type=int)
         per_page = 20
-        offset = (page - 1) * per_page
+        sort_by = request.args.get('sort_by', 'id')
+        sort_order = request.args.get('sort_order', 'asc')
 
-        with MySQLManager() as mysql_manager:
-            total_records = mysql_manager.execute_query(
-                f"SELECT COUNT(*) as count FROM {table_name}"
-            )[0]['count']
-
-            records = mysql_manager.execute_query(
-                f"SELECT * FROM {table_name} LIMIT {per_page} OFFSET {offset}"
-            )
-
-            # Get column names
-            columns = mysql_manager.execute_query(
-                f"SHOW COLUMNS FROM {table_name}"
-            )
-            columns = [column['Field'] for column in columns]
-
-        total_pages = (total_records + per_page - 1) // per_page
-
-        # Calculate the page range for pagination
-        page_range = range(
-            max(1, page - 2),
-            min(total_pages, page + 2) + 1
-        )
-
-        return render_template(
-            'table_view.html',
-            table_name=table_name,
-            records=records,
-            columns=columns,
-            page=page,
-            total_pages=total_pages,
-            page_range=page_range,
-            total_records=total_records
-        )
-
-    @app.route('/edit/<table_name>/<int:record_id>', methods=['GET', 'POST'])
-    def edit_record(table_name, record_id):
         mysql_manager = MySQLManager()
         try:
             mysql_manager.connect()
+            
+            # Get total number of records
+            count_result = mysql_manager.execute_query(f"SELECT COUNT(*) as count FROM {table_name}")
+            total_records = count_result[0]['count']
+            
+            # Calculate pagination
+            total_pages = ceil(total_records / per_page)
+            offset = (page - 1) * per_page
 
+            # Get records with sorting and pagination
+            query = f"SELECT * FROM {table_name} ORDER BY {sort_by} {sort_order} LIMIT {per_page} OFFSET {offset}"
+            records = mysql_manager.execute_query(query)
+
+            # Get column names
+            columns = mysql_manager.execute_query(f"SHOW COLUMNS FROM {table_name}")
+            column_names = [column['Field'] for column in columns]
+
+            return render_template('table_view.html', 
+                                   table_name=table_name, 
+                                   records=records, 
+                                   columns=column_names,
+                                   page=page, 
+                                   total_pages=total_pages,
+                                   sort_by=sort_by,
+                                   sort_order=sort_order)
+        finally:
+            mysql_manager.disconnect()
+
+    @app.route('/table/<table_name>/add', methods=['GET', 'POST'])
+    def add_record(table_name):
+        mysql_manager = MySQLManager()
+        try:
+            mysql_manager.connect()
+            
             if request.method == 'POST':
-                set_clause = ', '.join(
-                    [f"{key} = %s" for key in request.form.keys() if key != 'id']
-                )
-                query = f"UPDATE {table_name} SET {set_clause} WHERE id = %s"
-                values = (
-                    [request.form[key] for key in request.form.keys() if key != 'id']
-                    + [record_id]
-                )
+                columns = ', '.join(request.form.keys())
+                placeholders = ', '.join(['%s'] * len(request.form))
+                query = f"INSERT INTO {table_name} ({columns}) VALUES ({placeholders})"
+                values = tuple(request.form.values())
                 mysql_manager.execute_query(query, values)
-                mysql_manager.connection.commit()
+                flash('Record added successfully', 'success')
+                return redirect(url_for('table_view', table_name=table_name))
+
+            # Get column names for the form
+            columns = mysql_manager.execute_query(f"SHOW COLUMNS FROM {table_name}")
+            return render_template('add_record.html', table_name=table_name, columns=columns)
+        finally:
+            mysql_manager.disconnect()
+
+    @app.route('/table/<table_name>/edit/<int:id>', methods=['GET', 'POST'])
+    def edit_record(table_name, id):
+        mysql_manager = MySQLManager()
+        try:
+            mysql_manager.connect()
+            
+            if request.method == 'POST':
+                set_clause = ', '.join([f"{key} = %s" for key in request.form.keys()])
+                query = f"UPDATE {table_name} SET {set_clause} WHERE id = %s"
+                values = tuple(request.form.values()) + (id,)
+                mysql_manager.execute_query(query, values)
+                flash('Record updated successfully', 'success')
                 return redirect(url_for('table_view', table_name=table_name))
 
             query = f"SELECT * FROM {table_name} WHERE id = %s"
-            record = mysql_manager.execute_query(query, (record_id,))
-            if record:
-                record = record[0]
-            else:
-                record = None
-
+            record = mysql_manager.execute_query(query, (id,))[0]
             return render_template('edit_record.html', table_name=table_name, record=record)
         finally:
             mysql_manager.disconnect()
 
-    @app.route('/delete/<table_name>/<int:record_id>', methods=['POST'])
-    def delete_record(table_name, record_id):
+    @app.route('/table/<table_name>/delete/<int:id>', methods=['POST'])
+    def delete_record(table_name, id):
         mysql_manager = MySQLManager()
         try:
             mysql_manager.connect()
-
             query = f"DELETE FROM {table_name} WHERE id = %s"
-            mysql_manager.execute_query(query, (record_id,))
-            mysql_manager.connection.commit()
-
+            mysql_manager.execute_query(query, (id,))
+            flash('Record deleted successfully', 'success')
             return redirect(url_for('table_view', table_name=table_name))
         finally:
             mysql_manager.disconnect()
@@ -344,23 +388,42 @@ def register_routes(app):
         if request.method == 'POST':
             url = request.form['url']
             url_type = request.form['type']
-            mysql_manager = MySQLManager()
+            is_seed = True  # Always treat manually added URLs as seed profiles
+            
             try:
-                mysql_manager.connect()
-                table_name = (
-                    'linkedin_people' if url_type == 'person'
-                    else 'linkedin_companies'
-                )
-                query = f"INSERT INTO {table_name} (linkedin_url) VALUES (%s)"
-                mysql_manager.execute_query(query, (url,))
-                mysql_manager.connection.commit()
-                log(f"Added {url_type} URL: {url}")
+                # Add to NATS
+                nats_manager = NatsManager.get_instance()
+                nats_manager.connect()
+                subject = f"linkedin_{url_type}_urls"
+                message = json.dumps({"url": url, "is_seed": is_seed})
+                nats_manager.publish(subject, message)
+                log(f"Added seed {url_type} URL to NATS: {url}")
+                
+                # Add to seed_urls table
+                mysql_manager = MySQLManager()
+                try:
+                    mysql_manager.connect()
+                    query = """
+                        INSERT INTO seed_urls (url, type)
+                        VALUES (%s, %s)
+                        ON DUPLICATE KEY UPDATE type = VALUES(type)
+                    """
+                    mysql_manager.execute_query(query, (url, url_type))
+                    log(f"Added seed {url_type} URL to database: {url}")
+                except Exception as e:
+                    log(f"Error adding seed URL to database: {str(e)}", "error")
+                    flash(f"Error adding URL to database: {str(e)}", 'error')
+                    return redirect(url_for('add_url'))
+                finally:
+                    mysql_manager.disconnect()
+
+                flash('URL added successfully', 'success')
                 return redirect(url_for('index'))
             except Exception as e:
                 log(f"Error adding URL: {str(e)}", "error")
-                return f"Error adding URL: {str(e)}", 500
-            finally:
-                mysql_manager.disconnect()
+                flash(f"Error adding URL: {str(e)}", 'error')
+                return redirect(url_for('add_url'))
+        
         return render_template('add_url.html')
 
     return app

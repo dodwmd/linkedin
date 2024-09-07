@@ -1,251 +1,164 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LinkedIn Crawler Dashboard</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.5/socket.io.js"></script>
-    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500&display=swap" rel="stylesheet">
-    <style>
-        body, html {
-            margin: 0;
-            padding: 0;
-            font-family: 'Roboto', sans-serif;
-            background-color: #f8f9fa;
-            color: #202124;
-        }
-        .container {
-            padding: 20px;
-            max-width: 1200px;
-            margin: 0 auto;
-        }
-        h1, h2 {
-            color: #1a73e8;
-            font-weight: 500;
-        }
-        .card {
-            background-color: #fff;
-            border-radius: 8px;
-            box-shadow: 0 1px 2px 0 rgba(60,64,67,0.3), 0 1px 3px 1px rgba(60,64,67,0.15);
-            padding: 20px;
-            margin-bottom: 20px;
-        }
-        .status-item {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 10px 0;
-            border-bottom: 1px solid #e8eaed;
-        }
-        .status-item:last-child {
-            border-bottom: none;
-        }
-        .button {
-            display: inline-block;
-            padding: 10px 20px;
-            background-color: #1a73e8;
-            color: #fff;
-            text-decoration: none;
-            border-radius: 4px;
-            font-weight: 500;
-            margin: 10px 0;
-            cursor: pointer;
-            transition: background-color 0.3s;
-        }
-        .button:hover {
-            background-color: #174ea6;
-        }
-        #crawler-feed, #log-feed {
-            height: 300px;
-            overflow-y: auto;
-            border: 1px solid #e8eaed;
-            padding: 10px;
-            margin-top: 20px;
-            font-family: 'Roboto Mono', monospace;
-            font-size: 0.9em;
-            background-color: #f8f9fa;
-        }
-        #crawler-feed p, #log-feed p {
-            margin: 5px 0;
-        }
-        .log-info { color: #1a73e8; }
-        .log-warning { color: #f9ab00; }
-        .log-error { color: #d93025; }
-        table {
-            width: 100%;
-            border-collapse: collapse;
-        }
-        th, td {
-            border: 1px solid #e8eaed;
-            padding: 8px;
-            text-align: left;
-        }
-        th {
-            background-color: #f8f9fa;
-            font-weight: 500;
-        }
-        .status-ok {
-            color: green;
-        }
-        .status-error {
-            color: red;
-        }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <h1>LinkedIn Crawler Dashboard</h1>
-        
-        <div class="card">
-            <h2>System Status</h2>
-            <div class="status-item">
-                <span>NATS Status:</span>
-                <span id="nats-status" class="{{ 'status-ok' if nats_status == 'Connected' else 'status-error' }}">
-                    {{ nats_status }}
-                    {% if nats_error %}
-                        (Error: {{ nats_error }})
-                    {% endif %}
-                </span>
-            </div>
-            <div class="status-item">
-                <span>MySQL Status:</span>
-                <span id="mysql-status" class="{{ 'status-ok' if mysql_status == 'Connected' else 'status-error' }}">
-                    {{ mysql_status }}
-                    {% if mysql_error %}
-                        (Error: {{ mysql_error }})
-                    {% endif %}
-                </span>
-            </div>
-            <div class="status-item">
-                <span>Crawler Status:</span>
-                <span id="crawler-status" class="{{ 'status-ok' if crawler_status == 'Running' else 'status-error' }}">
-                    {{ crawler_status }}
-                </span>
-            </div>
-        </div>
-        
-        <div class="card">
-            <h2>Controls</h2>
-            <button id="start-crawler" class="button">Start Crawler</button>
-            <button id="stop-crawler" class="button">Stop Crawler</button>
-            <a href="{{ url_for('add_url') }}" class="button">Add Target URL</a>
-        </div>
- 
-        <div class="card">
-            <h2>MySQL Statistics</h2>
-            {% if mysql_info.error %}
-                <div class="status-item">
-                    <span>Error:</span>
-                    <span>{{ mysql_info.error }}</span>
-                </div>
-            {% else %}
-                <div class="status-item">
-                    <span>Database Size:</span>
-                    <span>{{ mysql_info.database_size_mb|default(0)|round(2) }} MB</span>
-                </div>
-                <div class="status-item">
-                    <span>Total Rows:</span>
-                    <span>{{ mysql_info.total_rows|default(0) }}</span>
-                </div>
+{% extends "base.html" %}
+
+{% block content %}
+<h1>LinkedIn Crawler Dashboard</h1>
+
+<div class="card">
+    <h2>System Status</h2>
+    <div class="status-item">
+        <span>NATS Status:</span>
+        <span id="nats-status" class="{{ 'status-ok' if nats_status == 'Connected' else 'status-error' }}">
+            {{ nats_status }}
+            {% if nats_error %}
+                (Error: {{ nats_error }})
             {% endif %}
-        </div>
-        <div class="card">
-            <h2>Crawler Statistics</h2>
-            <div class="status-item">
-                <span>Profiles Scanned:</span>
-                <span id="profiles-scanned" class="count">{{ profiles_scanned }}</span>
-            </div>
-            <div class="status-item">
-                <span>Companies Scanned:</span>
-                <span id="companies-scanned" class="count">{{ companies_scanned }}</span>
-            </div>
-        </div>
-        
-        <div class="card">
-            <h2>Crawler Activity Feed</h2>
-            <div id="crawler-feed">
-                {% if latest_entries %}
-                    {% for entry in latest_entries %}
-                        <p>
-                            {% if 'created_at' in entry and entry['created_at'] %}
-                                [{{ entry['created_at'].strftime('%Y-%m-%d %H:%M:%S') }}]
-                            {% endif %}
-                            Added {{ entry['type'] }}: 
-                            <a href="{{ entry['linkedin_url'] }}" target="_blank">{{ entry['name'] }}</a>
-                        </p>
-                    {% endfor %}
-                {% else %}
-                    <p>No activity to display. The crawler hasn't processed any entries yet.</p>
-                {% endif %}
-            </div>
-        </div>
-
-        <div class="card">
-            <h2>System Log</h2>
-            <div id="log-feed">
-                {% for log in logs %}
-                    <p class="{{ 'log-' + log.split(']')[1].strip().lower() }}">{{ log }}</p>
-                {% endfor %}
-            </div>
-        </div>
+        </span>
     </div>
+    <div class="status-item">
+        <span>MySQL Status:</span>
+        <span id="mysql-status" class="{{ 'status-ok' if mysql_status == 'Connected' else 'status-error' }}">
+            {{ mysql_status }}
+            {% if mysql_error %}
+                (Error: {{ mysql_error }})
+            {% endif %}
+        </span>
+    </div>
+    <div class="status-item">
+        <span>Crawler Status:</span>
+        <span id="crawler-status" class="{{ 'status-ok' if crawler_status == 'Running' else 'status-error' }}">
+            {{ crawler_status }}
+        </span>
+    </div>
+</div>
 
-    <script>
-        var socket = io('/crawler');
+<div class="card">
+    <h2>Controls</h2>
+    <form id="start-crawler-form" action="{{ url_for('start_crawler_route') }}" method="POST">
+        <button type="submit" class="button">Start Crawler</button>
+    </form>
+    <form id="stop-crawler-form" action="{{ url_for('stop_crawler_route') }}" method="POST">
+        <button type="submit" class="button">Stop Crawler</button>
+    </form>
+    <a href="{{ url_for('add_url') }}" class="button">Add Target URL</a>
+</div>
+
+<div class="card">
+    <h2>MySQL Statistics</h2>
+    {% if mysql_info.error %}
+        <div class="status-item">
+            <span>Error:</span>
+            <span>{{ mysql_info.error }}</span>
+        </div>
+    {% else %}
+        <div class="status-item">
+            <span>Database Size:</span>
+            <span>{{ mysql_info.database_size_mb|default(0)|round(2) }} MB</span>
+        </div>
+        <div class="status-item">
+            <span>Total Rows:</span>
+            <span>{{ mysql_info.total_rows|default(0) }}</span>
+        </div>
+    {% endif %}
+</div>
+
+<div class="card">
+    <h2>Crawler Statistics</h2>
+    <div class="status-item">
+        <span>Profiles Scanned:</span>
+        <span id="profiles-scanned" class="count">{{ profiles_scanned }}</span>
+    </div>
+    <div class="status-item">
+        <span>Companies Scanned:</span>
+        <span id="companies-scanned" class="count">{{ companies_scanned }}</span>
+    </div>
+</div>
+
+<div class="card">
+    <h2>Crawler Activity Feed</h2>
+    <div id="crawler-feed">
+        {% if latest_entries %}
+            {% for entry in latest_entries %}
+                <p>
+                    {% if 'created_at' in entry and entry['created_at'] %}
+                        [{{ entry['created_at'].strftime('%Y-%m-%d %H:%M:%S') }}]
+                    {% endif %}
+                    Added {{ entry['type'] }}: 
+                    <a href="{{ entry['linkedin_url'] }}" target="_blank">{{ entry['name'] }}</a>
+                </p>
+            {% endfor %}
+        {% else %}
+            <p>No activity to display. The crawler hasn't processed any entries yet.</p>
+        {% endif %}
+    </div>
+</div>
+
+<div class="card">
+    <h2>System Log</h2>
+    <div id="log-feed">
+        {% for log in logs %}
+            <p class="{{ 'log-' + log.split(']')[1].strip().lower() }}">{{ log }}</p>
+        {% endfor %}
+    </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.5/socket.io.js"></script>
+<script>
+    var socket = io('/crawler');
+    var crawlerFeed = document.getElementById('crawler-feed');
+    var logFeed = document.getElementById('log-feed');
+
+    socket.on('connect', function() {
+        console.log('Connected to the server');
+    });
+
+    socket.on('crawler_status', function(data) {
+        updateCrawlerStatus(data.status);
+    });
+
+    function updateCrawlerStatus(status) {
+        var statusElement = document.getElementById('crawler-status');
+        statusElement.textContent = status;
+        statusElement.className = status === 'Running' ? 'status-ok' : 'status-error';
+    }
+
+    socket.on('crawler_update', function(data) {
         var crawlerFeed = document.getElementById('crawler-feed');
+        
+        // Remove the "No activity" message if it exists
+        var noActivityMessage = crawlerFeed.querySelector('p:only-child');
+        if (noActivityMessage && noActivityMessage.textContent.includes('No activity')) {
+            crawlerFeed.removeChild(noActivityMessage);
+        }
+
+        var p = document.createElement('p');
+        var timestamp = new Date().toISOString().slice(0, 19).replace('T', ' ');
+        p.innerHTML = `[${timestamp}] Added ${data.type}: <a href="${data.linkedin_url}" target="_blank">${data.name}</a>`;
+        crawlerFeed.insertBefore(p, crawlerFeed.firstChild);
+
+        // Limit the number of displayed entries
+        if (crawlerFeed.childElementCount > 20) {
+            crawlerFeed.removeChild(crawlerFeed.lastChild);
+        }
+    });
+
+    socket.on('log_update', function(data) {
         var logFeed = document.getElementById('log-feed');
+        var p = document.createElement('p');
+        p.textContent = `[${data.timestamp}] [${data.level}] ${data.message}`;
+        p.className = 'log-' + data.level.toLowerCase();
+        logFeed.insertBefore(p, logFeed.firstChild);
+        if (logFeed.childElementCount > 50) {
+            logFeed.removeChild(logFeed.lastChild);
+        }
+    });
 
-        socket.on('connect', function() {
-            console.log('Connected to the server');
-        });
-
-        socket.on('crawler_update', function(data) {
-            var crawlerFeed = document.getElementById('crawler-feed');
-            
-            // Remove the "No activity" message if it exists
-            var noActivityMessage = crawlerFeed.querySelector('p:only-child');
-            if (noActivityMessage && noActivityMessage.textContent.includes('No activity')) {
-                crawlerFeed.removeChild(noActivityMessage);
-            }
-
-            var p = document.createElement('p');
-            var timestamp = new Date().toISOString().slice(0, 19).replace('T', ' ');
-            p.innerHTML = `[${timestamp}] Added ${data.type}: <a href="${data.linkedin_url}" target="_blank">${data.name}</a>`;
-            crawlerFeed.insertBefore(p, crawlerFeed.firstChild);
-
-            // Limit the number of displayed entries
-            if (crawlerFeed.childElementCount > 20) {
-                crawlerFeed.removeChild(crawlerFeed.lastChild);
-            }
-        });
-
-        socket.on('log_update', function(data) {
-            var p = document.createElement('p');
-            p.textContent = data.log;
-            var logLevel = data.log.split(']')[1].trim().toLowerCase();
-            p.className = 'log-' + logLevel;
-            logFeed.insertBefore(p, logFeed.firstChild);
-            if (logFeed.childElementCount > 50) {
-                logFeed.removeChild(logFeed.lastChild);
-            }
-        });
-
-        $(document).ready(function() {
-            $('#start-crawler').click(function() {
-                $.post('/start_crawler', function(data) {
-                    alert(data.status);
-                    location.reload();
-                });
-            });
-
-            $('#stop-crawler').click(function() {
-                $.post('/stop_crawler', function(data) {
-                    alert(data.status);
-                    location.reload();
-                });
-            });
-        });
-    </script>
-</body>
-</html>
+    // Update statistics
+    socket.on('update_statistics', function(data) {
+        document.getElementById('profiles-scanned').textContent = data.profiles_scanned;
+        document.getElementById('companies-scanned').textContent = data.companies_scanned;
+    });
+</script>
+{% endblock %}

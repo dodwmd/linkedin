@@ -13,12 +13,12 @@ class PeopleCrawler:
         self.nats_manager = nats_manager
         self.db_config = db_config
 
-    async def crawl_profile(self, linkedin_url):
+    async def crawl_profile(self, linkedin_url, is_seed=False):
         log(f"Crawling profile: {linkedin_url}")
         try:
-            if not await self._is_profile_scanned(linkedin_url):
+            if not await self._is_profile_scanned(linkedin_url) or is_seed:
                 person = Person(linkedin_url, driver=self.driver)
-                await self._process_person(person)
+                await self._process_person(person, is_seed)
                 await self._process_contacts(person)
                 log(f"Profile processed: {linkedin_url}", "debug")
                 return person
@@ -46,15 +46,34 @@ class PeopleCrawler:
                 cursor.close()
                 connection.close()
 
-    async def _process_person(self, person):
+    async def _process_person(self, person, is_seed=False):
         log(f"Processing person: {person.name}", "debug")
         try:
             connection = mysql.connector.connect(**self.db_config)
             cursor = connection.cursor()
-            query = """INSERT INTO linkedin_people 
-                       (name, about, experiences, interests, accomplishments,
-                       company, job_title, linkedin_url) 
-                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s)"""
+            
+            if is_seed:
+                # Update existing record or insert new one
+                query = """
+                    INSERT INTO linkedin_people 
+                    (name, about, experiences, interests, accomplishments,
+                    company, job_title, linkedin_url) 
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                    ON DUPLICATE KEY UPDATE
+                    name = VALUES(name), about = VALUES(about), 
+                    experiences = VALUES(experiences), interests = VALUES(interests),
+                    accomplishments = VALUES(accomplishments), company = VALUES(company),
+                    job_title = VALUES(job_title)
+                """
+            else:
+                # Insert new record only
+                query = """
+                    INSERT IGNORE INTO linkedin_people 
+                    (name, about, experiences, interests, accomplishments,
+                    company, job_title, linkedin_url) 
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                """
+            
             values = (
                 person.name, person.about, str(person.experiences),
                 str(person.interests), str(person.accomplishments),

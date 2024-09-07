@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Database Tables</h1>
+<ul>
+    {% for table in tables %}
+        <li><a href="{{ url_for('table_view', table_name=table.values()|first) }}">{{ table.values()|first }}</a></li>
+    {% endfor %}
+</ul>
+{% endblock %}

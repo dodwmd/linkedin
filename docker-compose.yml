@@ -1,16 +1,17 @@
 services:
   app:
-    build: .
+    build: 
+      context: .
+      dockerfile: Dockerfile
     image: app_app
     ports:
       - "9988:8080"
-    volumes:
-      - ./linkedin_scraper:/app/linkedin_scraper
     depends_on:
       - nats
       - mysql
     env_file:
       - .env
+    stop_signal: SIGINT
 
   nats:
     image: nats:latest

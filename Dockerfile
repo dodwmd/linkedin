@@ -1,11 +1,16 @@
+# Use an official Python runtime as a parent image
 FROM python:3.12
 
+# Set environment variables
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    CHROMEDRIVER_VERSION=128.0.6613.119 \
+    DISPLAY=:99
+
+# Set the working directory in the container
 WORKDIR /app
 
-# Set Chrome and ChromeDriver version
-ENV CHROMEDRIVER_VERSION=128.0.6613.119
-
-# Install dependencies for Chrome
+# Install system dependencies
 RUN apt-get update && apt-get install -y \
     wget \
     unzip \
@@ -57,42 +62,33 @@ RUN wget -q https://storage.googleapis.com/chrome-for-testing-public/${CHROMEDRI
     && rm chromedriver-linux64.zip \
     && chmod +x /usr/bin/chromedriver
 
-# Set PATH to include Chrome and ChromeDriver
-ENV PATH="/opt/chrome-linux64:/opt/chromedriver-linux64:${PATH}"
+# Set PATH to include Chrome, ChromeDriver, and pip install bin directory
+ENV PATH="/opt/chrome-linux64:/root/.local/bin:${PATH}"
 
 # Verify Chrome and ChromeDriver installation
 RUN chrome --version && chromedriver --version
 
-# Set display port to avoid crash
-ENV DISPLAY=:99
+# Copy requirements file
+COPY requirements.txt .
+
+# Install Python dependencies
+RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy the local linkedin_scraper package
 COPY linkedin_scraper /app/linkedin_scraper
 
-# Copy requirements and install Python dependencies
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-
 # Install the local linkedin_scraper package
 RUN pip install -e /app/linkedin_scraper
 
-# Copy the rest of the application code
-COPY src /app/src
-COPY linkedin_scraper /app/linkedin_scraper
-
-# Install dependencies
-RUN pip install --no-cache-dir -r requirements.txt
-
-# Set the working directory
-WORKDIR /app/src
-
-# Update the CMD to use python directly
-CMD ["python", "/app/src/app.py"]
-
-# Debugging: List contents of important directories
-RUN ls -la /opt/chrome-linux64 && \
-    ls -la /opt/chromedriver-linux64 && \
-    ls -la /usr/bin | grep chrome
-
 # Expose port 8080 for the web app
 EXPOSE 8080
+
+# Copy the rest of the application code
+COPY src /app/src
+
+# Set the working directory to /app/src
+WORKDIR /app/src
+
+# Update the CMD to use Gunicorn with eventlet worker
+CMD ["gunicorn", "--worker-class", "eventlet", "-w", "1", "--bind", "0.0.0.0:8080", "wsgi:app"]
+
