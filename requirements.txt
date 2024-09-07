@@ -19,7 +19,7 @@ eventlet==0.33.3
 mysql-connector-python==8.0.26
 
 # Messaging
-nats-py==2.2.0
+nats-py==2.9.0
 
 # Asynchronous Programming
 asyncio==3.4.3
