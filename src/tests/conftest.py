@@ -1,4 +1,4 @@
-import pytest
+import os, sys, pytest
 from unittest.mock import patch
 from tests.mocks import MockNatsManager, MockMySQLManager
 # Add the parent directory to the Python path
