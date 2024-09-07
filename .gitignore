@@ -1,6 +1,5 @@
 .pyenv
 .env
-linkedin_scraper/
 
 # Python cache files
 __pycache__/

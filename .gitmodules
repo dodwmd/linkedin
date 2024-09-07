@@ -1,0 +1,3 @@
+[submodule "linkedin_scraper"]
+	path = linkedin_scraper
+	url = git@github.com:dodwmd/linkedin_scraper.git
