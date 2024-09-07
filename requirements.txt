@@ -37,4 +37,4 @@ flake8==7.1.1
 mypy==1.11.2
 
 # Selenium (for web scraping)
-selenium==4.9.1
+selenium==4.24.0
