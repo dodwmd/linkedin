@@ -1,5 +1,5 @@
 # Web Framework
-flask==2.0.1
+flask==3.0.3
 Werkzeug==2.3.8
 flask-cors==5.0.0
 
