@@ -9,6 +9,7 @@ import io
 import asyncio
 from crawler_manager import start_crawler, stop_crawler, crawler_state
 from contextlib import asynccontextmanager
+from mysql.connector import Error as MySQLError
 
 
 @asynccontextmanager
@@ -26,11 +27,8 @@ async def nats_connection():
 
 async def check_nats_health():
     try:
-        async with asyncio.timeout(5):  # 5 seconds timeout
-            async with nats_connection():
-                return "Connected", None
-    except asyncio.TimeoutError:
-        return "Timeout", "Connection timed out"
+        nats_manager = await NatsManager.get_instance()
+        return "Connected", None
     except Exception as e:
         return "Error", str(e)
 
@@ -61,7 +59,17 @@ def get_mysql_info():
 
         # Get list of tables
         tables = mysql_manager.execute_query("SHOW TABLES")
-        tables = [list(table.values())[0] for table in tables]
+        if not isinstance(tables, list):
+            raise ValueError(f"Unexpected result type: {type(tables)}")
+        if len(tables) == 0:
+            return {
+                'database_size_mb': 0,
+                'total_rows': 0,
+                'tables': [],
+                'profiles_scanned': 0,
+                'companies_scanned': 0,
+                'error': "No tables found in the database"
+            }
 
         table_info = []
         total_rows = 0
@@ -70,37 +78,42 @@ def get_mysql_info():
         companies_scanned = 0
 
         for table in tables:
+            table_name = list(table.values())[0]
             try:
                 # Get row count for each table
-                row_count = mysql_manager.execute_query(
-                    f"SELECT COUNT(*) as row_count FROM `{table}`"
-                )[0]['row_count']
+                row_count_result = mysql_manager.execute_query(
+                    f"SELECT COUNT(*) as row_count FROM `{table_name}`"
+                )
+                if not isinstance(row_count_result, list) or len(row_count_result) == 0:
+                    raise ValueError(f"Failed to get row count for table {table_name}")
+                row_count = row_count_result[0]['row_count']
                 total_rows += row_count
 
                 # Update profiles_scanned and companies_scanned
-                if table == 'linkedin_people':
+                if table_name == 'linkedin_people':
                     profiles_scanned = row_count
-                elif table == 'linkedin_companies':
+                elif table_name == 'linkedin_companies':
                     companies_scanned = row_count
 
                 # Get table size
-                status = mysql_manager.execute_query(
-                    f"SHOW TABLE STATUS LIKE '{table}'"
-                )[0]
-                size_mb = (
-                    status['Data_length'] + status['Index_length']
-                ) / (1024 * 1024)
+                status_result = mysql_manager.execute_query(
+                    f"SHOW TABLE STATUS LIKE '{table_name}'"
+                )
+                if not isinstance(status_result, list) or len(status_result) == 0:
+                    raise ValueError(f"Failed to get table status for {table_name}")
+                status = status_result[0]
+                size_mb = (status['Data_length'] + status['Index_length']) / (1024 * 1024)
                 total_size_mb += size_mb
 
                 table_info.append({
-                    'table_name': table,
+                    'table_name': table_name,
                     'row_count': row_count,
                     'size_mb': round(size_mb, 2)
                 })
             except Exception as table_error:
-                print(f"Error getting info for table {table}: {str(table_error)}")
+                print(f"Error getting info for table {table_name}: {str(table_error)}")
                 table_info.append({
-                    'table_name': table,
+                    'table_name': table_name,
                     'row_count': 'N/A',
                     'size_mb': 'N/A'
                 })
@@ -114,8 +127,18 @@ def get_mysql_info():
             'profiles_scanned': profiles_scanned,
             'companies_scanned': companies_scanned
         }
+    except MySQLError as e:
+        print(f"MySQL Error: {str(e)}")
+        return {
+            'database_size_mb': 0,
+            'total_rows': 0,
+            'tables': [],
+            'profiles_scanned': 0,
+            'companies_scanned': 0,
+            'error': f"MySQL Error: {str(e)}"
+        }
     except Exception as e:
-        print(f"Error retrieving MySQL info: {str(e)}")  # noqa: E501
+        print(f"Error retrieving MySQL info: {str(e)}")
         return {
             'database_size_mb': 0,
             'total_rows': 0,
@@ -131,26 +154,20 @@ def register_routes(app):
     def index():
         nats_status, nats_error = check_nats_health_sync()
         mysql_status, mysql_error = check_mysql_health()
-        crawler_status = (
-            "Running" if crawler_state.is_running() else "Stopped"
-        )
+        crawler_status = "Running" if crawler_state.is_running() else "Stopped"
         mysql_info = get_mysql_info()
-        nats_server_info, nats_subject_info = {}, {}
-
-        last_logs = list(activity_queue.queue)[-50:]
+        
         return render_template(
             'index.html',
-            profiles_scanned=mysql_info['profiles_scanned'],
-            companies_scanned=mysql_info['companies_scanned'],
             nats_status=nats_status,
             nats_error=nats_error,
             mysql_status=mysql_status,
             mysql_error=mysql_error,
             crawler_status=crawler_status,
             mysql_info=mysql_info,
-            nats_server_info=nats_server_info,
-            nats_subject_info=nats_subject_info,
-            logs=last_logs
+            profiles_scanned=mysql_info['profiles_scanned'],
+            companies_scanned=mysql_info['companies_scanned'],
+            logs=list(activity_queue.queue)[-50:]
         )
 
     @app.route('/start_crawler', methods=['POST'])
@@ -201,7 +218,7 @@ def register_routes(app):
             )[0]['count']
 
             records = mysql_manager.execute_query(
-                f"SELECT * FROM {table_name} LIMIT {per_page} OFFSET {offset}"  # noqa: E501
+                f"SELECT * FROM {table_name} LIMIT {per_page} OFFSET {offset}"
             )
 
             # Get column names
@@ -255,7 +272,7 @@ def register_routes(app):
             else:
                 record = None
 
-            return render_template('edit_record.html', table_name=table_name, record=record)  # noqa: E501
+            return render_template('edit_record.html', table_name=table_name, record=record)
         finally:
             mysql_manager.disconnect()
 

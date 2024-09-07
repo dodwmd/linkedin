@@ -3,6 +3,23 @@ docker_build(
     'app_app',  # This should match the service name in docker-compose.yml
     '.',
     dockerfile='Dockerfile',
+    ignore=[
+        'Tiltfile',
+        '.git',
+        '.gitignore',
+        'README.md',
+        'docker-compose.yml',
+        '.env',
+        '.env.example',
+        '**/__pycache__',
+        '**/*.pyc',
+        '**/*.pyo',
+        '**/*.pyd',
+        '.pytest_cache',
+        '.mypy_cache',
+        '.vscode',
+        '.idea',
+    ],
     live_update=[
         sync('src', '/app/src'),
         sync('linkedin_scraper', '/app/linkedin_scraper'),
@@ -40,9 +57,10 @@ def run_type_checker():
         trigger_mode=TRIGGER_MODE_MANUAL
     )
 
-# Watch for changes in Python files
-watch_file('src/**/*.py')
-watch_file('linkedin_scraper/**/*.py')
+# Watch specific files and directories
+watch_file('src')
+watch_file('linkedin_scraper')
+watch_file('requirements.txt')
 
 # Define a custom build step that runs tests, linter, and type checker
 local_resource(
@@ -78,3 +96,5 @@ local_resource(
     auto_init=False,
     trigger_mode=TRIGGER_MODE_AUTO
 )
+
+update_settings(max_parallel_updates=3)

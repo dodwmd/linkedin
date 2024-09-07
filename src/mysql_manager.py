@@ -2,10 +2,10 @@ import mysql.connector
 from mysql.connector import Error
 import os
 from dotenv import load_dotenv
+from shared_data import log
 
 # Load environment variables from .env file
 load_dotenv()
-
 
 class MySQLManager:
     def __init__(self):
@@ -21,32 +21,43 @@ class MySQLManager:
                 password=os.getenv('MYSQL_PASSWORD', 'rootpassword')
             )
             if self.connection.is_connected():
-                self.cursor = self.connection.cursor(
-                    dictionary=True, buffered=True
-                )
+                self.cursor = self.connection.cursor(dictionary=True, buffered=True)
+                log("Successfully connected to MySQL database")
+            else:
+                log("Failed to connect to MySQL database", "error")
         except Error as e:
-            print(f"Error while connecting to MySQL: {e}")
+            log(f"Error while connecting to MySQL: {e}", "error")
+            raise
 
     def disconnect(self):
         if self.cursor:
             self.cursor.close()
         if self.connection and self.connection.is_connected():
             self.connection.close()
+            log("MySQL connection closed")
 
     def execute_query(self, query, params=None):
         try:
+            if not self.connection or not self.connection.is_connected():
+                log("MySQL connection is not established. Reconnecting...", "warning")
+                self.connect()
+            
             if params:
                 self.cursor.execute(query, params)
             else:
                 self.cursor.execute(query)
-            if query.strip().upper().startswith("SELECT"):
-                return self.cursor.fetchall()
+            
+            if query.strip().upper().startswith("SELECT") or query.strip().upper().startswith("SHOW"):
+                result = self.cursor.fetchall()
             else:
                 self.connection.commit()
-                return self.cursor.rowcount
+                result = [{"affected_rows": self.cursor.rowcount}]
+            
+            log(f"Query executed successfully: {query[:50]}...")
+            return result
         except Error as e:
-            print(f"Error executing query: {e}")
-            return None
+            log(f"Error executing query: {e}", "error")
+            raise
         finally:
             self.cursor.reset()
 
