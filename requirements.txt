@@ -28,7 +28,7 @@ asyncio==3.4.3
 python-dotenv==0.19.1
 
 # Testing
-pytest==7.3.1
+pytest==8.3.2
 pytest-flask==1.2.0
 pytest-asyncio==0.21.0
 
