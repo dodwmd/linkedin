@@ -9,7 +9,7 @@ asgiref==3.8.1
 
 # WebSocket Support
 flask-socketio==5.1.1
-python-engineio==4.2.1
+python-engineio==4.9.1
 python-socketio==5.11.4
 gevent-websocket==0.10.1
 gevent==24.2.1
