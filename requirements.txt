@@ -8,7 +8,7 @@ uvicorn[standard]==0.30.6
 asgiref==3.8.1
 
 # WebSocket Support
-flask-socketio==5.1.1
+flask-socketio==5.3.7
 python-engineio==4.9.1
 python-socketio==5.11.4
 gevent-websocket==0.10.1
