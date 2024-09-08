@@ -28,11 +28,15 @@ class NatsManager:
                 log(f"Connected to NATS server at {self._nats_url}")
             except Exception as e:
                 log(f"Failed to connect to NATS server: {str(e)}", "error")
+                self._nc = None
                 raise
 
-    async def publish(self, subject, message):
+    async def ensure_connection(self):
         if not self.is_connected():
             await self.connect()
+
+    async def publish(self, subject, message):
+        await self.ensure_connection()
         try:
             await self._nc.publish(subject, message.encode())
             log(f"Published message to {subject}")
@@ -45,8 +49,7 @@ class NatsManager:
             raise
 
     async def subscribe(self, subject, callback):
-        if not self.is_connected():
-            await self.connect()
+        await self.ensure_connection()
         try:
             await self._nc.subscribe(subject, cb=callback)
             log(f"Subscribed to {subject}")
@@ -67,10 +70,13 @@ class NatsManager:
         return self._nc is not None and self._nc.is_connected
 
     async def request(self, subject, payload, timeout=1):
-        if not self.is_connected():
-            await self.connect()
+        await self.ensure_connection()
         try:
-            response = await self._nc.request(subject, payload.encode(), timeout=timeout)
+            if isinstance(payload, str):
+                payload = payload.encode()
+            elif not isinstance(payload, bytes):
+                payload = str(payload).encode()
+            response = await self._nc.request(subject, payload, timeout=timeout)
             return response
         except TimeoutError:
             log(f"Request to {subject} timed out", "warning")

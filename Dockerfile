@@ -4,7 +4,6 @@ FROM python:3.12
 # Set environment variables
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    CHROMEDRIVER_VERSION=128.0.6613.119 \
     DISPLAY=:99
 
 # Set the working directory in the container
@@ -14,6 +13,7 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y \
     wget \
     unzip \
+    jq \
     xvfb \
     libxi6 \
     libgconf-2-4 \
@@ -46,27 +46,27 @@ RUN apt-get update && apt-get install -y \
     libxfixes3 \
     libxi6 \
     libxss1 \
+    fonts-liberation \
+    libu2f-udev \
+    libvulkan1 \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Chrome for Testing
-RUN wget -q https://storage.googleapis.com/chrome-for-testing-public/${CHROMEDRIVER_VERSION}/linux64/chrome-linux64.zip \
-    && unzip chrome-linux64.zip -d /opt/ \
-    && ln -s /opt/chrome-linux64/chrome /usr/bin/chrome \
-    && rm chrome-linux64.zip
+# Install Chrome
+RUN wget -qO /tmp/chrome-linux64.zip https://storage.googleapis.com/chrome-for-testing-public/`wget -qO- https://googlechromelabs.github.io/chrome-for-testing/last-known-good-versions-with-downloads.json | jq -r '.channels.Stable.version'`/linux64/chrome-linux64.zip \
+    && unzip /tmp/chrome-linux64.zip -d /opt/ \
+    && ln -s /opt/chrome-linux64/chrome /usr/bin/google-chrome \
+    && rm /tmp/chrome-linux64.zip
 
 # Install ChromeDriver
-RUN wget -q https://storage.googleapis.com/chrome-for-testing-public/${CHROMEDRIVER_VERSION}/linux64/chromedriver-linux64.zip \
-    && unzip chromedriver-linux64.zip -d /opt/ \
-    && ln -s /opt/chromedriver-linux64/chromedriver /usr/bin/chromedriver \
-    && rm chromedriver-linux64.zip \
-    && chmod +x /usr/bin/chromedriver
+RUN wget -qO /tmp/chromedriver-linux64.zip https://edgedl.me.gvt1.com/edgedl/chrome/chrome-for-testing/`wget -qO- https://googlechromelabs.github.io/chrome-for-testing/last-known-good-versions-with-downloads.json | jq -r '.channels.Stable.version'`/linux64/chromedriver-linux64.zip \
+    && unzip -j /tmp/chromedriver-linux64.zip chromedriver-linux64/chromedriver -d /usr/bin/
 
-# Set PATH to include Chrome, ChromeDriver, and pip install bin directory
-ENV PATH="/opt/chrome-linux64:/root/.local/bin:${PATH}"
+# Set PATH to include ChromeDriver
+ENV PATH="/usr/bin:${PATH}"
 
 # Verify Chrome and ChromeDriver installation
-RUN chrome --version && chromedriver --version
+RUN google-chrome --version && chromedriver --version
 
 # Copy requirements file
 COPY requirements.txt .
@@ -80,14 +80,18 @@ COPY linkedin_scraper /app/linkedin_scraper
 # Install the local linkedin_scraper package
 RUN pip install -e /app/linkedin_scraper
 
-# Expose port 8080 for the web app
-EXPOSE 8080
+# Expose ports for the web app and remote debugging
+EXPOSE 8080 9222
 
 # Copy the rest of the application code
 COPY src /app/src
 
 # Set the working directory to /app/src
 WORKDIR /app/src
+
+# Create a non-root user
+RUN useradd -m myuser
+USER myuser
 
 # Update the CMD to use Gunicorn with eventlet worker
 CMD ["gunicorn", "--worker-class", "eventlet", "-w", "1", "--bind", "0.0.0.0:8080", "wsgi:app"]

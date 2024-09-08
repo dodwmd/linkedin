@@ -11,6 +11,27 @@ import os
 crawler_thread = None
 crawler_state = CrawlerState()
 
+async def run_crawler_async(crawler_state: CrawlerState):
+    nats_manager = NatsManager.get_instance()
+    mysql_manager = MySQLManager()
+    linkedin_session = LinkedInSession(os.getenv('LINKEDIN_EMAIL'), os.getenv('LINKEDIN_PASSWORD'))
+    
+    await mysql_manager.connect()
+    crawler = LinkedInCrawler(nats_manager, mysql_manager, linkedin_session)
+    
+    try:
+        await crawler.run(crawler_state)
+    finally:
+        await mysql_manager.disconnect()
+
+def run_crawler_sync(crawler_state: CrawlerState):
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        loop.run_until_complete(run_crawler_async(crawler_state))
+    finally:
+        loop.close()
+
 def start_crawler():
     global crawler_thread
     if not crawler_state.is_running():
@@ -46,7 +67,3 @@ def stop_crawler():
     log("Crawler is not running")
     flash('Crawler is not running', 'info')
     return False
-
-def run_crawler_sync(crawler_state: CrawlerState):
-    crawler = LinkedInCrawler(NatsManager.get_instance(), MySQLManager(), LinkedInSession(os.getenv('LINKEDIN_EMAIL'), os.getenv('LINKEDIN_PASSWORD')))
-    asyncio.run(crawler.run(crawler_state))

@@ -43,93 +43,44 @@ def check_mysql_health():
     except Exception as e:
         return "Disconnected", str(e)
 
-def get_mysql_info():
-    mysql_manager = MySQLManager()
+async def get_mysql_info(mysql_manager):
     try:
-        mysql_manager.connect()
+        await mysql_manager.connect()
+        # Fetch database size
+        size_query = "SELECT SUM(data_length + index_length) / 1024 / 1024 AS size_mb FROM information_schema.tables WHERE table_schema = %s"
+        size_result = await mysql_manager.execute_query(size_query, (mysql_manager.db_config['db'],))
+        database_size_mb = size_result[0]['size_mb'] if size_result[0]['size_mb'] is not None else 0
 
-        # Get list of tables
-        tables = mysql_manager.execute_query("SHOW TABLES")
-        if not isinstance(tables, list):
-            raise ValueError(f"Unexpected result type: {type(tables)}")
-        if len(tables) == 0:
-            return {
-                'database_size_mb': 0,
-                'total_rows': 0,
-                'tables': [],
-                'profiles_scanned': 0,
-                'companies_scanned': 0,
-                'error': "No tables found in the database"
-            }
-
-        table_info = []
+        # Fetch total number of rows
+        tables_query = "SHOW TABLES"
+        tables = await mysql_manager.execute_query(tables_query)
         total_rows = 0
-        total_size_mb = 0
-        profiles_scanned = 0
-        companies_scanned = 0
-
+        table_info = []
         for table in tables:
             table_name = list(table.values())[0]
-            try:
-                # Get row count for each table
-                row_count_result = mysql_manager.execute_query(
-                    f"SELECT COUNT(*) as row_count FROM `{table_name}`"
-                )
-                if not isinstance(row_count_result, list) or len(row_count_result) == 0:
-                    raise ValueError(f"Failed to get row count for table {table_name}")
-                row_count = row_count_result[0]['row_count']
-                total_rows += row_count
+            count_query = f"SELECT COUNT(*) as count FROM {table_name}"
+            count_result = await mysql_manager.execute_query(count_query)
+            row_count = count_result[0]['count']
+            total_rows += row_count
+            table_info.append({'name': table_name, 'rows': row_count})
 
-                # Update profiles_scanned and companies_scanned
-                if table_name == 'linkedin_people':
-                    profiles_scanned = row_count
-                elif table_name == 'linkedin_companies':
-                    companies_scanned = row_count
-
-                # Get table size
-                status_result = mysql_manager.execute_query(
-                    f"SHOW TABLE STATUS LIKE '{table_name}'"
-                )
-                if not isinstance(status_result, list) or len(status_result) == 0:
-                    raise ValueError(f"Failed to get table status for {table_name}")
-                status = status_result[0]
-                size_mb = (status['Data_length'] + status['Index_length']) / (1024 * 1024)
-                total_size_mb += size_mb
-
-                table_info.append({
-                    'table_name': table_name,
-                    'row_count': row_count,
-                    'size_mb': round(size_mb, 2)
-                })
-            except Exception as table_error:
-                print(f"Error getting info for table {table_name}: {str(table_error)}")
-                table_info.append({
-                    'table_name': table_name,
-                    'row_count': 'N/A',
-                    'size_mb': 'N/A'
-                })
-
-        mysql_manager.disconnect()
+        # Fetch profiles and companies scanned
+        profiles_query = "SELECT COUNT(*) as count FROM linkedin_people"
+        companies_query = "SELECT COUNT(*) as count FROM linkedin_companies"
+        profiles_result = await mysql_manager.execute_query(profiles_query)
+        companies_result = await mysql_manager.execute_query(companies_query)
+        profiles_scanned = profiles_result[0]['count']
+        companies_scanned = companies_result[0]['count']
 
         return {
-            'database_size_mb': round(total_size_mb, 2),
+            'database_size_mb': round(database_size_mb, 2),
             'total_rows': total_rows,
             'tables': table_info,
             'profiles_scanned': profiles_scanned,
             'companies_scanned': companies_scanned
         }
-    except MySQLError as e:
-        print(f"MySQL Error: {str(e)}")
-        return {
-            'database_size_mb': 0,
-            'total_rows': 0,
-            'tables': [],
-            'profiles_scanned': 0,
-            'companies_scanned': 0,
-            'error': f"MySQL Error: {str(e)}"
-        }
     except Exception as e:
-        print(f"Error retrieving MySQL info: {str(e)}")
+        log(f"Error in get_mysql_info: {str(e)}", "error")
         return {
             'database_size_mb': 0,
             'total_rows': 0,
@@ -138,10 +89,35 @@ def get_mysql_info():
             'companies_scanned': 0,
             'error': str(e)
         }
+    finally:
+        await mysql_manager.disconnect()
+
+async def get_latest_entries(mysql_manager):
+    try:
+        await mysql_manager.connect()
+        query = """
+            (SELECT 'person' as type, name, linkedin_url, created_at
+             FROM linkedin_people
+             ORDER BY created_at DESC
+             LIMIT 10)
+            UNION ALL
+            (SELECT 'company' as type, name, linkedin_url, created_at
+             FROM linkedin_companies
+             ORDER BY created_at DESC
+             LIMIT 10)
+            ORDER BY created_at DESC
+            LIMIT 20
+        """
+        return await mysql_manager.execute_query(query)
+    except Exception as e:
+        log(f"Error fetching latest entries: {str(e)}", "error")
+        return []
+    finally:
+        await mysql_manager.disconnect()
 
 def register_routes(app):
     @app.route('/', methods=['GET'])
-    def index():
+    async def index():
         nats_manager = NatsManager.get_instance()
         mysql_manager = MySQLManager()
 
@@ -154,13 +130,12 @@ def register_routes(app):
                 log(f"Error connecting to NATS in index route: {str(e)}", "error")
                 nats_status = "Disconnected"
                 nats_error = str(e)
-
             return nats_status, nats_error
 
-        nats_status, nats_error = asyncio.run(async_operations())
+        nats_status, nats_error = await async_operations()
 
         try:
-            mysql_manager.connect()
+            await mysql_manager.connect()
             mysql_status = "Connected"
             mysql_error = None
         except Exception as e:
@@ -169,29 +144,12 @@ def register_routes(app):
             mysql_error = str(e)
 
         crawler_status = "Running" if crawler_state.is_running() else "Stopped"
-        mysql_info = get_mysql_info()
 
-        # Fetch latest profiles and companies
-        try:
-            mysql_manager.connect()
-            latest_entries = mysql_manager.execute_query("""
-                (SELECT 'person' as type, name, linkedin_url, created_at
-                 FROM linkedin_people
-                 ORDER BY created_at DESC
-                 LIMIT 10)
-                UNION ALL
-                (SELECT 'company' as type, name, linkedin_url, created_at
-                 FROM linkedin_companies
-                 ORDER BY created_at DESC
-                 LIMIT 10)
-                ORDER BY created_at DESC
-                LIMIT 20
-            """)
-        except Exception as e:
-            log(f"Error fetching latest entries in index route: {str(e)}", "error")
-            latest_entries = []
-        finally:
-            mysql_manager.disconnect()
+        # Fetch MySQL info and latest entries concurrently
+        mysql_info, latest_entries = await asyncio.gather(
+            get_mysql_info(mysql_manager),
+            get_latest_entries(mysql_manager)
+        )
 
         return render_template('index.html',
                                nats_status=nats_status,
@@ -203,7 +161,6 @@ def register_routes(app):
                                latest_entries=latest_entries,
                                profiles_scanned=mysql_info['profiles_scanned'],
                                companies_scanned=mysql_info['companies_scanned'])
-
     @app.route('/start_crawler', methods=['POST'])
     def start_crawler_route():
         try:
@@ -258,7 +215,7 @@ def register_routes(app):
                                total_rows=mysql_info['total_rows'])
 
     @app.route('/table/<table_name>')
-    def table_view(table_name):
+    async def table_view(table_name):
         page = request.args.get('page', 1, type=int)
         per_page = 20
         sort_by = request.args.get('sort_by', 'id')
@@ -266,11 +223,11 @@ def register_routes(app):
 
         mysql_manager = MySQLManager()
         try:
-            mysql_manager.connect()
+            await mysql_manager.connect()
             
             # Get total number of records
             count_query = f"SELECT COUNT(*) as count FROM {table_name}"
-            count_result = mysql_manager.execute_query(count_query)
+            count_result = await mysql_manager.execute_query(count_query)
             
             if not count_result or 'count' not in count_result[0]:
                 raise ValueError(f"Unexpected count result: {count_result}")
@@ -283,28 +240,28 @@ def register_routes(app):
 
             # Get records with sorting and pagination
             query = f"SELECT * FROM {table_name} ORDER BY {sort_by} {sort_order} LIMIT {per_page} OFFSET {offset}"
-            records = mysql_manager.execute_query(query)
+            records = await mysql_manager.execute_query(query)
 
             # Get column names
             columns_query = f"SHOW COLUMNS FROM {table_name}"
-            columns = mysql_manager.execute_query(columns_query)
+            columns = await mysql_manager.execute_query(columns_query)
             column_names = [column['Field'] for column in columns]
 
             return render_template('table_view.html', 
-                                   table_name=table_name, 
-                                   records=records, 
-                                   columns=column_names,
-                                   page=page, 
-                                   total_pages=total_pages,
-                                   sort_by=sort_by,
-                                   sort_order=sort_order,
-                                   total_records=total_records)
+                                table_name=table_name, 
+                                records=records, 
+                                columns=column_names,
+                                page=page, 
+                                total_pages=total_pages,
+                                sort_by=sort_by,
+                                sort_order=sort_order,
+                                total_records=total_records)
         except Exception as e:
             log(f"Error in table_view for {table_name}: {str(e)}", "error")
             flash(f"Error viewing table: {str(e)}", 'error')
             return redirect(url_for('list_tables'))
         finally:
-            mysql_manager.disconnect()
+            await mysql_manager.disconnect()
 
     @app.route('/table/<table_name>/add', methods=['GET', 'POST'])
     def add_record(table_name):
@@ -396,7 +353,7 @@ def register_routes(app):
             mysql_manager.disconnect()
 
     @app.route('/add_url', methods=['GET', 'POST'])
-    async def add_url():
+    def add_url():
         if request.method == 'POST':
             url = request.form['url']
             url_type = request.form['type']
@@ -405,41 +362,51 @@ def register_routes(app):
             nats_manager = NatsManager.get_instance()
             mysql_manager = MySQLManager()
             
-            try:
-                # Add to NATS
-                await nats_manager.connect()
-                log("Successfully connected to NATS")
-                
-                subject = f"linkedin_{url_type}_urls"
-                message = json.dumps({"url": url, "is_seed": is_seed})
-                await nats_manager.publish(subject, message)
-                log(f"Successfully added seed {url_type} URL to NATS: {url}")
-                
-                # Add to seed_urls table
+            async def async_operations():
                 try:
-                    mysql_manager.connect()
-                    log("Successfully connected to MySQL")
+                    # Add to NATS
+                    await nats_manager.connect()
+                    log("Successfully connected to NATS")
                     
-                    query = """
-                        INSERT INTO seed_urls (url, type)
-                        VALUES (%s, %s)
-                        ON DUPLICATE KEY UPDATE type = VALUES(type)
-                    """
-                    mysql_manager.execute_query(query, (url, url_type))
-                    log(f"Successfully added seed {url_type} URL to database: {url}")
-                    flash('URL added successfully', 'success')
+                    subject = f"linkedin_{url_type}_urls"
+                    message = json.dumps({"url": url, "is_seed": is_seed})
+                    await nats_manager.publish(subject, message)
+                    log(f"Successfully added seed {url_type} URL to NATS: {url}")
                 except Exception as e:
-                    log(f"Error adding seed URL to database: {str(e)}", "error")
-                    flash(f"Error adding URL to database: {str(e)}", 'error')
-                finally:
-                    mysql_manager.disconnect()
-                    log("MySQL connection closed")
-                
-                return redirect(url_for('index'))
+                    log(f"Error in add_url route: {str(e)}", "error")
+                    raise
+
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                loop.run_until_complete(async_operations())
             except Exception as e:
-                log(f"Error in add_url route: {str(e)}", "error")
-                flash(f"Error adding URL: {str(e)}", 'error')
+                flash(f"Error adding URL to NATS: {str(e)}", 'error')
                 return redirect(url_for('add_url'))
+            finally:
+                loop.close()
+            
+            # Add to seed_urls table
+            try:
+                mysql_manager.connect()
+                log("Successfully connected to MySQL")
+                
+                query = """
+                    INSERT INTO seed_urls (url, type)
+                    VALUES (%s, %s)
+                    ON DUPLICATE KEY UPDATE type = VALUES(type)
+                """
+                mysql_manager.execute_query(query, (url, url_type))
+                log(f"Successfully added seed {url_type} URL to database: {url}")
+                flash('URL added successfully', 'success')
+            except Exception as e:
+                log(f"Error adding seed URL to database: {str(e)}", "error")
+                flash(f"Error adding URL to database: {str(e)}", 'error')
+            finally:
+                mysql_manager.disconnect()
+                log("MySQL connection closed")
+            
+            return redirect(url_for('index'))
         
         return render_template('add_url.html')
 

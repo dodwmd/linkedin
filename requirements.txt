@@ -8,6 +8,9 @@ eventlet==0.36.1
 flask-socketio==5.3.7
 flask[async]
 
+aiomysql
+cryptography
+
 # Database
 mysql-connector-python==9.0.0
 
@@ -19,6 +22,7 @@ python-dotenv==1.0.1
 
 # Selenium (for web scraping)
 selenium==4.24.0
+webdriver-manager==3.8.6
 
 # Testing (optional, remove if not using)
 pytest==8.3.2

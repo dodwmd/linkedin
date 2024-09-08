@@ -108,7 +108,8 @@ class LinkedInCrawler:
 
     async def cleanup(self):
         try:
-            await self.nats_manager.close()
+            if self.nats_manager.is_connected():
+                await self.nats_manager.close()
             await self.company_crawler.close()
             await self.people_crawler.close()
         except Exception as e:
@@ -118,7 +119,7 @@ class LinkedInCrawler:
         try:
             # First, check if there are any messages in the NATS queue
             response = await self.nats_manager.request("linkedin_company_urls", b'', timeout=1)
-            if response:
+            if response and response.data:
                 data = json.loads(response.data.decode())
                 return data.get('url')
 
@@ -139,7 +140,7 @@ class LinkedInCrawler:
         try:
             # First, check if there are any messages in the NATS queue
             response = await self.nats_manager.request("linkedin_people_urls", b'', timeout=1)
-            if response:
+            if response and response.data:
                 data = json.loads(response.data.decode())
                 return data.get('url')
 

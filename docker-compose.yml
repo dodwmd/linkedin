@@ -6,11 +6,22 @@ services:
     image: app_app
     ports:
       - "9988:8080"
+      - "9222:9222"  # Expose remote debugging port
     depends_on:
       - nats
       - mysql
     env_file:
       - .env
+    environment:
+      - MYSQL_HOST=mysql
+      - MYSQL_DATABASE=linkedin_db
+      - MYSQL_USER=${MYSQL_USER}
+      - MYSQL_PASSWORD=${MYSQL_PASSWORD}
+      - LINKEDIN_EMAIL=${LINKEDIN_EMAIL}
+      - LINKEDIN_PASSWORD=${LINKEDIN_PASSWORD}
+      - NATS_URL=${NATS_URL}
+    volumes:
+      - /dev/shm:/dev/shm
     stop_signal: SIGINT
 
   nats:
