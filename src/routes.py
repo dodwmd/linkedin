@@ -8,41 +8,33 @@ import csv
 import io
 import asyncio
 from crawler_manager import start_crawler, stop_crawler, crawler_state
-from contextlib import asynccontextmanager
+from contextlib import contextmanager
 from mysql.connector import Error as MySQLError
 import json
 from math import ceil
 
 
-@asynccontextmanager
-async def nats_connection():
+@contextmanager
+def nats_connection():
+    nats_manager = NatsManager.get_instance()
     try:
-        nats_manager = await NatsManager.get_instance()
+        nats_manager.connect()
         yield nats_manager
     except Exception as e:
         print(f"Error connecting to NATS: {e}")
         yield None
     finally:
         if nats_manager:
-            await nats_manager.close()
+            nats_manager.close()
 
 
-async def check_nats_health():
+def check_nats_health():
     try:
-        nats_manager = await NatsManager.get_instance()
+        nats_manager = NatsManager.get_instance()
+        nats_manager.connect()
         return "Connected", None
     except Exception as e:
         return "Error", str(e)
-
-
-def check_nats_health_sync():
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    try:
-        return loop.run_until_complete(check_nats_health())
-    finally:
-        loop.close()
-
 
 def check_mysql_health():
     mysql_manager = MySQLManager()
@@ -238,7 +230,7 @@ def register_routes(app):
     @app.route('/status', methods=['GET'])
     def status():
         mysql_info = get_mysql_info()
-        nats_status, nats_error = check_nats_health_sync()
+        nats_status, nats_error = check_nats_health()
         mysql_status, mysql_error = check_mysql_health()
 
         return jsonify({
@@ -256,13 +248,11 @@ def register_routes(app):
 
     @app.route('/tables')
     def list_tables():
-        mysql_manager = MySQLManager()
-        try:
-            mysql_manager.connect()
-            tables = mysql_manager.execute_query("SHOW TABLES")
-            return render_template('tables.html', tables=tables)
-        finally:
-            mysql_manager.disconnect()
+        mysql_info = get_mysql_info()
+        return render_template('tables.html', 
+                               tables=mysql_info['tables'],
+                               database_size_mb=mysql_info['database_size_mb'],
+                               total_rows=mysql_info['total_rows'])
 
     @app.route('/table/<table_name>')
     def table_view(table_name):

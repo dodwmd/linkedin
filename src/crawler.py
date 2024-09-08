@@ -26,14 +26,12 @@ class LinkedInCrawler:
 
         while not crawler_state.is_stop_requested():
             try:
-                subject, message = await self.nats_manager.get_message("linkedin_company_urls", timeout=5)
+                subject, message = await self.nats_manager.get_message("linkedin_company_urls", timeout=1)
                 if subject is None and message is None:
                     # If queue is empty, try to use a seed profile
                     seed_company = await self._get_seed_company()
                     if seed_company:
                         await self.crawl_company(seed_company, is_seed=True)
-                    else:
-                        await asyncio.sleep(1)
                     continue
 
                 # Process the company message
@@ -45,21 +43,18 @@ class LinkedInCrawler:
 
             except Exception as e:
                 log(f"Error processing company message: {str(e)}", "error")
-            await asyncio.sleep(1)  # Add a small delay to prevent tight looping
 
     async def process_people_queue(self, crawler_state):
         await self.nats_manager.subscribe("linkedin_people_urls")
 
         while not crawler_state.is_stop_requested():
             try:
-                subject, message = await self.nats_manager.get_message("linkedin_people_urls", timeout=5)
+                subject, message = await self.nats_manager.get_message("linkedin_people_urls", timeout=1)
                 if subject is None and message is None:
                     # If queue is empty, try to use a seed profile
                     seed_person = await self._get_seed_person()
                     if seed_person:
                         await self.crawl_person(seed_person, is_seed=True)
-                    else:
-                        await asyncio.sleep(1)
                     continue
 
                 # Process the people message
@@ -71,7 +66,6 @@ class LinkedInCrawler:
 
             except Exception as e:
                 log(f"Error processing people message: {str(e)}", "error")
-            await asyncio.sleep(1)  # Add a small delay to prevent tight looping
 
     async def crawl_company(self, company_url, is_seed=False):
         try:
@@ -140,11 +134,22 @@ class LinkedInCrawler:
 
             company_task = self.loop.create_task(self.process_company_queue(crawler_state))
             people_task = self.loop.create_task(self.process_people_queue(crawler_state))
-            await asyncio.gather(company_task, people_task)
+            
+            while not crawler_state.is_stop_requested():
+                await asyncio.sleep(1)
+                if company_task.done() and people_task.done():
+                    break
+
+            if crawler_state.is_stop_requested():
+                company_task.cancel()
+                people_task.cancel()
+                
+            await asyncio.gather(company_task, people_task, return_exceptions=True)
         except Exception as e:
             log(f"Error in crawler run: {str(e)}", "error")
         finally:
             await self.cleanup()
+            crawler_state.set_stopped()
 
     async def cleanup(self):
         try:
