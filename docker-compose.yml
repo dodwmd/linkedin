@@ -27,5 +27,17 @@ services:
     ports:
       - "3306:3306"
 
+  phpmyadmin:
+    image: phpmyadmin/phpmyadmin
+    environment:
+      PMA_HOST: mysql
+      PMA_USER: linkedin
+      PMA_PASSWORD: linkedin
+      PMA_ARBITRARY: 1
+    ports:
+      - "9987:80"
+    depends_on:
+      - mysql
+
 volumes:
   mysql_data:

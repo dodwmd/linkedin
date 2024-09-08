@@ -1,15 +1,83 @@
 {% extends "base.html" %}
+
 {% block content %}
-<h1>Edit Record in {{ table_name }}</h1>
-<form method="post">
-    {% for key, value in record.items() %}
-        {% if key != 'id' %}
-            <div class="form-group">
-                <label for="{{ key }}">{{ key }}</label>
-                <input type="text" class="form-control" id="{{ key }}" name="{{ key }}" value="{{ value }}" required>
+<div class="container mt-5">
+    <div class="row justify-content-center">
+        <div class="col-md-8">
+            <div class="card shadow-sm">
+                <div class="card-header bg-primary text-white">
+                    <h2 class="mb-0">Edit Record in {{ table_name }}</h2>
+                </div>
+                <div class="card-body">
+                    <form method="post" class="needs-validation" novalidate>
+                        {% for key, value in record.items() %}
+                            {% if key != 'id' %}
+                                <div class="mb-3">
+                                    <label for="{{ key }}" class="form-label">{{ key | title }}:</label>
+                                    <div class="input-group">
+                                        <span class="input-group-text">
+                                            {% if key == 'url' %}
+                                                <i class="fas fa-link"></i>
+                                            {% elif key == 'type' %}
+                                                <i class="fas fa-tag"></i>
+                                            {% elif 'date' in key or 'time' in key %}
+                                                <i class="fas fa-calendar-alt"></i>
+                                            {% else %}
+                                                <i class="fas fa-info-circle"></i>
+                                            {% endif %}
+                                        </span>
+                                        {% if value is none %}
+                                            <input type="text" class="form-control" id="{{ key }}" name="{{ key }}" value="">
+                                        {% elif value is string and value|length > 100 %}
+                                            <textarea class="form-control" id="{{ key }}" name="{{ key }}" rows="3">{{ value }}</textarea>
+                                        {% elif value is number %}
+                                            <input type="number" class="form-control" id="{{ key }}" name="{{ key }}" value="{{ value }}">
+                                        {% elif value is boolean %}
+                                            <select class="form-select" id="{{ key }}" name="{{ key }}">
+                                                <option value="True" {% if value %}selected{% endif %}>True</option>
+                                                <option value="False" {% if not value %}selected{% endif %}>False</option>
+                                            </select>
+                                        {% elif value is string and ('date' in key or 'time' in key) %}
+                                            <input type="datetime-local" class="form-control" id="{{ key }}" name="{{ key }}" value="{{ value }}">
+                                        {% else %}
+                                            <input type="text" class="form-control" id="{{ key }}" name="{{ key }}" value="{{ value }}">
+                                        {% endif %}
+                                    </div>
+                                </div>
+                            {% endif %}
+                        {% endfor %}
+                        <div class="mb-3">
+                            <button type="submit" class="btn btn-primary">
+                                <i class="fas fa-save me-2"></i>Update Record
+                            </button>
+                            <a href="{{ url_for('table_view', table_name=table_name) }}" class="btn btn-secondary">
+                                <i class="fas fa-times me-2"></i>Cancel
+                            </a>
+                        </div>
+                    </form>
+                </div>
             </div>
-        {% endif %}
-    {% endfor %}
-    <button type="submit" class="btn btn-primary">Update Record</button>
-</form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // Form validation
+    (function () {
+        'use strict'
+        var forms = document.querySelectorAll('.needs-validation')
+        Array.prototype.slice.call(forms)
+            .forEach(function (form) {
+                form.addEventListener('submit', function (event) {
+                    if (!form.checkValidity()) {
+                        event.preventDefault()
+                        event.stopPropagation()
+                    }
+                    form.classList.add('was-validated')
+                }, false)
+            })
+    })()
+</script>
 {% endblock %}

@@ -145,15 +145,16 @@ def get_mysql_info():
 
 def register_routes(app):
     @app.route('/', methods=['GET'])
-    def index():
+    async def index():
         nats_manager = NatsManager.get_instance()
         mysql_manager = MySQLManager()
 
         try:
-            nats_manager.connect()
+            await nats_manager.connect()
             nats_status = "Connected"
             nats_error = None
         except Exception as e:
+            log(f"Error connecting to NATS in index route: {str(e)}", "error")
             nats_status = "Disconnected"
             nats_error = str(e)
 
@@ -162,6 +163,7 @@ def register_routes(app):
             mysql_status = "Connected"
             mysql_error = None
         except Exception as e:
+            log(f"Error connecting to MySQL in index route: {str(e)}", "error")
             mysql_status = "Disconnected"
             mysql_error = str(e)
 
@@ -185,7 +187,7 @@ def register_routes(app):
                 LIMIT 20
             """)
         except Exception as e:
-            log(f"Error fetching latest entries: {str(e)}", "error")
+            log(f"Error fetching latest entries in index route: {str(e)}", "error")
             latest_entries = []
         finally:
             mysql_manager.disconnect()
@@ -202,30 +204,30 @@ def register_routes(app):
                                companies_scanned=mysql_info['companies_scanned'])
 
     @app.route('/start_crawler', methods=['POST'])
-    def start_crawler_route():
+    async def start_crawler_route():
         try:
             if not crawler_state.is_running():
-                start_crawler()
+                await start_crawler()
                 flash('Crawler started successfully', 'success')
             else:
                 flash('Crawler is already running', 'info')
-            return redirect(url_for('index'))
         except Exception as e:
+            log(f"Error starting crawler: {str(e)}", "error")
             flash(f'Error starting crawler: {str(e)}', 'error')
-            return redirect(url_for('index'))
+        return redirect(url_for('index'))
 
     @app.route('/stop_crawler', methods=['POST'])
-    def stop_crawler_route():
+    async def stop_crawler_route():
         try:
             if crawler_state.is_running():
-                stop_crawler()
+                await stop_crawler()
                 flash('Crawler stopped successfully', 'success')
             else:
                 flash('Crawler is not running', 'info')
-            return redirect(url_for('index'))
         except Exception as e:
+            log(f"Error stopping crawler: {str(e)}", "error")
             flash(f'Error stopping crawler: {str(e)}', 'error')
-            return redirect(url_for('index'))
+        return redirect(url_for('index'))
 
     @app.route('/status', methods=['GET'])
     def status():
@@ -266,7 +268,12 @@ def register_routes(app):
             mysql_manager.connect()
             
             # Get total number of records
-            count_result = mysql_manager.execute_query(f"SELECT COUNT(*) as count FROM {table_name}")
+            count_query = f"SELECT COUNT(*) as count FROM {table_name}"
+            count_result = mysql_manager.execute_query(count_query)
+            
+            if not count_result or 'count' not in count_result[0]:
+                raise ValueError(f"Unexpected count result: {count_result}")
+            
             total_records = count_result[0]['count']
             
             # Calculate pagination
@@ -278,7 +285,8 @@ def register_routes(app):
             records = mysql_manager.execute_query(query)
 
             # Get column names
-            columns = mysql_manager.execute_query(f"SHOW COLUMNS FROM {table_name}")
+            columns_query = f"SHOW COLUMNS FROM {table_name}"
+            columns = mysql_manager.execute_query(columns_query)
             column_names = [column['Field'] for column in columns]
 
             return render_template('table_view.html', 
@@ -288,7 +296,12 @@ def register_routes(app):
                                    page=page, 
                                    total_pages=total_pages,
                                    sort_by=sort_by,
-                                   sort_order=sort_order)
+                                   sort_order=sort_order,
+                                   total_records=total_records)
+        except Exception as e:
+            log(f"Error in table_view for {table_name}: {str(e)}", "error")
+            flash(f"Error viewing table: {str(e)}", 'error')
+            return redirect(url_for('list_tables'))
         finally:
             mysql_manager.disconnect()
 
@@ -354,10 +367,14 @@ def register_routes(app):
             query = f"SELECT * FROM {table_name}"
             records = mysql_manager.execute_query(query)
 
+            if not records:
+                flash(f"No data found in table {table_name}", 'warning')
+                return redirect(url_for('table_view', table_name=table_name))
+
             output = io.StringIO()
             writer = csv.DictWriter(
                 output,
-                fieldnames=records[0].keys() if records else []
+                fieldnames=records[0].keys()
             )
             writer.writeheader()
             for record in records:
@@ -368,50 +385,58 @@ def register_routes(app):
                 io.BytesIO(output.getvalue().encode('utf-8')),
                 mimetype='text/csv',
                 as_attachment=True,
-                attachment_filename=f'{table_name}.csv'
+                download_name=f'{table_name}.csv'  # Changed from attachment_filename to download_name
             )
+        except Exception as e:
+            log(f"Error exporting CSV for {table_name}: {str(e)}", "error")
+            flash(f"Error exporting CSV: {str(e)}", 'error')
+            return redirect(url_for('table_view', table_name=table_name))
         finally:
             mysql_manager.disconnect()
 
     @app.route('/add_url', methods=['GET', 'POST'])
-    def add_url():
+    async def add_url():
         if request.method == 'POST':
             url = request.form['url']
             url_type = request.form['type']
             is_seed = True  # Always treat manually added URLs as seed profiles
             
+            nats_manager = NatsManager.get_instance()
+            mysql_manager = MySQLManager()
+            
             try:
                 # Add to NATS
-                nats_manager = NatsManager.get_instance()
-                nats_manager.connect()
+                await nats_manager.connect()
+                log("Successfully connected to NATS")
                 
                 subject = f"linkedin_{url_type}_urls"
                 message = json.dumps({"url": url, "is_seed": is_seed})
-                nats_manager.publish(subject, message)
-                log(f"Added seed {url_type} URL to NATS: {url}")
+                await nats_manager.publish(subject, message)
+                log(f"Successfully added seed {url_type} URL to NATS: {url}")
                 
                 # Add to seed_urls table
-                mysql_manager = MySQLManager()
                 try:
                     mysql_manager.connect()
+                    log("Successfully connected to MySQL")
+                    
                     query = """
                         INSERT INTO seed_urls (url, type)
                         VALUES (%s, %s)
                         ON DUPLICATE KEY UPDATE type = VALUES(type)
                     """
                     mysql_manager.execute_query(query, (url, url_type))
-                    log(f"Added seed {url_type} URL to database: {url}")
+                    log(f"Successfully added seed {url_type} URL to database: {url}")
+                    flash('URL added successfully', 'success')
                 except Exception as e:
                     log(f"Error adding seed URL to database: {str(e)}", "error")
                     flash(f"Error adding URL to database: {str(e)}", 'error')
-                    return redirect(url_for('add_url'))
                 finally:
                     mysql_manager.disconnect()
-
-                flash('URL added successfully', 'success')
+                    log("MySQL connection closed")
+                
                 return redirect(url_for('index'))
             except Exception as e:
-                log(f"Error adding URL: {str(e)}", "error")
+                log(f"Error in add_url route: {str(e)}", "error")
                 flash(f"Error adding URL: {str(e)}", 'error')
                 return redirect(url_for('add_url'))
         
