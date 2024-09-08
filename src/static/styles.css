@@ -420,3 +420,105 @@ tr:hover {
     border-color: #545b62;
 }
 
+/* Add these styles at the end of your existing CSS file */
+
+.input-group {
+    display: flex;
+    align-items: stretch;
+}
+
+.input-group-text {
+    display: flex;
+    align-items: center;
+    padding: .375rem .75rem;
+    font-size: 1rem;
+    font-weight: 400;
+    line-height: 1.5;
+    color: #495057;
+    text-align: center;
+    white-space: nowrap;
+    background-color: #e9ecef;
+    border: 1px solid #ced4da;
+    border-radius: .25rem;
+    border-top-right-radius: 0;
+    border-bottom-right-radius: 0;
+}
+
+.form-control,
+.form-select {
+    flex: 1 1 auto;
+    width: 1%;
+    min-width: 0;
+}
+
+.form-control:not(:last-child),
+.form-select:not(:last-child) {
+    border-top-right-radius: 0;
+    border-bottom-right-radius: 0;
+}
+
+.form-control:not(:first-child),
+.form-select:not(:first-child) {
+    border-top-left-radius: 0;
+    border-bottom-left-radius: 0;
+}
+
+.invalid-feedback {
+    display: none;
+    width: 100%;
+    margin-top: .25rem;
+    font-size: 80%;
+    color: #dc3545;
+}
+
+.was-validated .form-control:invalid,
+.was-validated .form-select:invalid {
+    border-color: #dc3545;
+}
+
+.was-validated .form-control:invalid + .invalid-feedback,
+.was-validated .form-select:invalid + .invalid-feedback {
+    display: block;
+}
+
+
+/* Add these styles at the end of your existing CSS file */
+
+.btn-primary {
+    color: #fff;
+    background-color: #0a66c2;
+    border-color: #0a66c2;
+}
+
+.btn-primary:hover {
+    color: #fff;
+    background-color: #004182;
+    border-color: #004182;
+}
+
+.btn-block {
+    display: block;
+    width: 100%;
+}
+
+.btn {
+    font-weight: 600;
+    padding: 0.5rem 1rem;
+    font-size: 1rem;
+    line-height: 1.5;
+    border-radius: 0.25rem;
+    transition: color 0.15s ease-in-out, background-color 0.15s ease-in-out, border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
+}
+
+.btn:focus, .btn:active {
+    outline: none;
+    box-shadow: 0 0 0 0.2rem rgba(10, 102, 194, 0.25);
+}
+
+.mb-3 {
+    margin-bottom: 1rem;
+}
+
+.me-2 {
+    margin-right: 0.5rem;
+}

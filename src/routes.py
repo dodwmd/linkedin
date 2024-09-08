@@ -384,6 +384,7 @@ def register_routes(app):
                 # Add to NATS
                 nats_manager = NatsManager.get_instance()
                 nats_manager.connect()
+                
                 subject = f"linkedin_{url_type}_urls"
                 message = json.dumps({"url": url, "is_seed": is_seed})
                 nats_manager.publish(subject, message)
