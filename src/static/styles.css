@@ -39,6 +39,13 @@ h1, h2 {
     margin: -24px -24px 24px -24px;
 }
 
+.card-header h2 {
+    color: white;
+    margin: 0;
+    font-size: 1.5rem;
+    font-weight: 500;
+}
+
 .status-item {
     display: flex;
     justify-content: space-between;
@@ -521,4 +528,17 @@ tr:hover {
 
 .me-2 {
     margin-right: 0.5rem;
+}
+
+.form-control-wide {
+    width: 100%;
+    max-width: 100%;
+}
+
+.card-body {
+    padding: 2rem;
+}
+
+.form-label {
+    font-weight: bold;
 }

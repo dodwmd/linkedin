@@ -1,15 +1,87 @@
 {% extends "base.html" %}
+
 {% block content %}
-<h1>Add New Record to {{ table_name }}</h1>
-<form method="post">
-    {% for column in columns %}
-        {% if column.Field != 'id' %}
-            <div class="form-group">
-                <label for="{{ column.Field }}">{{ column.Field }}</label>
-                <input type="text" class="form-control" id="{{ column.Field }}" name="{{ column.Field }}" required>
+<div class="container mt-5">
+    <div class="row justify-content-center">
+        <div class="col-md-10">
+            <div class="card shadow-sm">
+                <div class="card-header bg-primary text-white">
+                    <h2 class="mb-0">Add New Record to {{ table_name }}</h2>
+                </div>
+                <div class="card-body">
+                    <form method="post" id="addRecordForm">
+                        {% for column in columns %}
+                            {% if column.Field != 'id' %}
+                                <div class="mb-3">
+                                    <label for="{{ column.Field }}" class="form-label">{{ column.Field }}</label>
+                                    {% if column.Type.startswith('varchar') or column.Type.startswith('char') %}
+                                        <input type="text" class="form-control form-control-wide" id="{{ column.Field }}" name="{{ column.Field }}" required>
+                                    {% elif column.Type.startswith('int') or column.Type.startswith('bigint') %}
+                                        <input type="number" class="form-control form-control-wide" id="{{ column.Field }}" name="{{ column.Field }}" required>
+                                    {% elif column.Type.startswith('date') %}
+                                        <input type="date" class="form-control form-control-wide" id="{{ column.Field }}" name="{{ column.Field }}" required>
+                                    {% elif column.Type.startswith('datetime') %}
+                                        <input type="datetime-local" class="form-control form-control-wide" id="{{ column.Field }}" name="{{ column.Field }}" required>
+                                    {% elif column.Type.startswith('text') %}
+                                        <textarea class="form-control form-control-wide" id="{{ column.Field }}" name="{{ column.Field }}" rows="3" required></textarea>
+                                    {% elif column.Type.startswith('enum') %}
+                                        <select class="form-select form-control-wide" id="{{ column.Field }}" name="{{ column.Field }}" required>
+                                            <option value="">Select an option</option>
+                                            {% for option in column.Type[5:-1].replace("'", "").split(',') %}
+                                                <option value="{{ option.strip() }}">{{ option.strip() }}</option>
+                                            {% endfor %}
+                                        </select>
+                                    {% else %}
+                                        <input type="text" class="form-control form-control-wide" id="{{ column.Field }}" name="{{ column.Field }}" required>
+                                    {% endif %}
+                                </div>
+                            {% endif %}
+                        {% endfor %}
+                        <div class="d-grid gap-2">
+                            <button type="submit" class="btn btn-primary">Add Record</button>
+                        </div>
+                    </form>
+                </div>
             </div>
-        {% endif %}
-    {% endfor %}
-    <button type="submit" class="btn btn-primary">Add Record</button>
-</form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const form = document.getElementById('addRecordForm');
+
+    form.addEventListener('submit', function(event) {
+        event.preventDefault();
+        
+        // Basic form validation
+        let isValid = true;
+        form.querySelectorAll('input, select, textarea').forEach(function(element) {
+            if (element.hasAttribute('required') && !element.value.trim()) {
+                isValid = false;
+                element.classList.add('is-invalid');
+            } else {
+                element.classList.remove('is-invalid');
+            }
+        });
+
+        if (isValid) {
+            form.submit();
+        } else {
+            alert('Please fill in all required fields.');
+        }
+    });
+
+    // Dynamic field validation
+    form.querySelectorAll('input, select, textarea').forEach(function(element) {
+        element.addEventListener('input', function() {
+            if (this.value.trim()) {
+                this.classList.remove('is-invalid');
+            }
+        });
+    });
+});
+</script>
 {% endblock %}
