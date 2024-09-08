@@ -1,94 +1,56 @@
 from linkedin_scraper import Company
-import mysql.connector
-from mysql.connector import Error
 from shared_data import log, emit_crawler_update
 from linkedin_session import LinkedInSession
 from nats_manager import NatsManager
+from mysql_manager import MySQLManager
 import json
 
-
 class CompanyCrawler:
-    def __init__(self, linkedin_session: LinkedInSession, nats_manager: NatsManager, db_config):
+    def __init__(self, linkedin_session: LinkedInSession, nats_manager: NatsManager, mysql_manager: MySQLManager):
         self.driver = linkedin_session.get_driver()
         self.nats_manager = nats_manager
-        self.db_config = db_config
+        self.mysql_manager = mysql_manager
 
-    async def crawl_company(self, company_url, is_seed=False):
-        log(f"Crawling company: {company_url}")
+    async def crawl_company(self, linkedin_url, is_seed=False):
+        log(f"Crawling company: {linkedin_url}")
         try:
-            if not await self._is_company_scanned(company_url) or is_seed:
-                company = Company(company_url, driver=self.driver)
+            if not await self._is_company_scanned(linkedin_url) or is_seed:
+                company = Company(linkedin_url, driver=self.driver)
                 await self._process_company(company, is_seed)
                 await self._process_employees(company)
-                log(f"Company processed: {company_url}", "debug")
+                log(f"Company processed: {linkedin_url}", "debug")
                 return company
             else:
-                log(f"Company already scanned, skipping: {company_url}", "debug")
+                log(f"Company already scanned, skipping: {linkedin_url}", "debug")
             return None
         except Exception as e:
-            log(f"Error crawling company {company_url}: {str(e)}", "error")
+            log(f"Error crawling company {linkedin_url}: {str(e)}", "error")
             raise
 
-    async def _is_company_scanned(self, company_url):
-        try:
-            connection = mysql.connector.connect(**self.db_config)
-            cursor = connection.cursor()
-            query = ("SELECT COUNT(*) FROM linkedin_companies "
-                     "WHERE linkedin_url = %s")
-            cursor.execute(query, (company_url,))
-            result = cursor.fetchone()
-            return result[0] > 0
-        except Error as e:
-            log(f"Error checking if company is scanned: {e}", "error")
-            return False
-        finally:
-            if connection.is_connected():
-                cursor.close()
-                connection.close()
+    async def _is_company_scanned(self, linkedin_url):
+        query = "SELECT COUNT(*) as count FROM linkedin_companies WHERE linkedin_url = %s"
+        result = await self.mysql_manager.execute_query(query, (linkedin_url,))
+        return result[0]['count'] > 0
 
     async def _process_company(self, company, is_seed=False):
-        try:
-            connection = mysql.connector.connect(**self.db_config)
-            cursor = connection.cursor()
-            
-            if is_seed:
-                # Update existing record or insert new one
-                query = """
-                    INSERT INTO linkedin_companies
-                    (name, linkedin_url, website, industry, company_size,
-                    headquarters, founded, specialties, about)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-                    ON DUPLICATE KEY UPDATE
-                    name = VALUES(name), website = VALUES(website),
-                    industry = VALUES(industry), company_size = VALUES(company_size),
-                    headquarters = VALUES(headquarters), founded = VALUES(founded),
-                    specialties = VALUES(specialties), about = VALUES(about)
-                """
-            else:
-                # Insert new record only
-                query = """
-                    INSERT IGNORE INTO linkedin_companies
-                    (name, linkedin_url, website, industry, company_size,
-                    headquarters, founded, specialties, about)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-                """
-            
-            values = (
-                company.name, company.linkedin_url, company.website,
-                company.industry, company.company_size, company.headquarters,
-                company.founded, ', '.join(company.specialties), company.about
-            )
-            cursor.execute(query, values)
-            connection.commit()
-
-            # Emit crawler update event
-            await self._emit_crawler_update(company)
-        except Error as e:
-            log(f"Error inserting company data: {e}", "error")
-        finally:
-            if connection.is_connected():
-                cursor.close()
-                connection.close()
+        query = """
+            INSERT INTO linkedin_companies
+            (name, linkedin_url, website, industry, company_size,
+            headquarters, founded, specialties, about)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ON DUPLICATE KEY UPDATE
+            name = VALUES(name), website = VALUES(website),
+            industry = VALUES(industry), company_size = VALUES(company_size),
+            headquarters = VALUES(headquarters), founded = VALUES(founded),
+            specialties = VALUES(specialties), about = VALUES(about)
+        """
+        values = (
+            company.name, company.linkedin_url, company.website,
+            company.industry, company.company_size, company.headquarters,
+            company.founded, json.dumps(company.specialties), company.about
+        )
+        await self.mysql_manager.execute_query(query, values)
+        await self._emit_crawler_update(company)
 
     async def _emit_crawler_update(self, company):
         update_data = {
@@ -110,5 +72,4 @@ class CompanyCrawler:
 
     async def close(self):
         log("Closing CompanyCrawler...", "debug")
-        # No need to close the driver here as it's managed by LinkedInSession
         log("CompanyCrawler closed.")

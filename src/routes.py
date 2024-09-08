@@ -13,7 +13,6 @@ from mysql.connector import Error as MySQLError
 import json
 from math import ceil
 
-
 @contextmanager
 def nats_connection():
     nats_manager = NatsManager.get_instance()
@@ -26,7 +25,6 @@ def nats_connection():
     finally:
         if nats_manager:
             nats_manager.close()
-
 
 def check_nats_health():
     try:
@@ -44,7 +42,6 @@ def check_mysql_health():
         return "Connected", None
     except Exception as e:
         return "Disconnected", str(e)
-
 
 def get_mysql_info():
     mysql_manager = MySQLManager()
@@ -142,21 +139,25 @@ def get_mysql_info():
             'error': str(e)
         }
 
-
 def register_routes(app):
     @app.route('/', methods=['GET'])
-    async def index():
+    def index():
         nats_manager = NatsManager.get_instance()
         mysql_manager = MySQLManager()
 
-        try:
-            await nats_manager.connect()
-            nats_status = "Connected"
-            nats_error = None
-        except Exception as e:
-            log(f"Error connecting to NATS in index route: {str(e)}", "error")
-            nats_status = "Disconnected"
-            nats_error = str(e)
+        async def async_operations():
+            try:
+                await nats_manager.connect()
+                nats_status = "Connected"
+                nats_error = None
+            except Exception as e:
+                log(f"Error connecting to NATS in index route: {str(e)}", "error")
+                nats_status = "Disconnected"
+                nats_error = str(e)
+
+            return nats_status, nats_error
+
+        nats_status, nats_error = asyncio.run(async_operations())
 
         try:
             mysql_manager.connect()
@@ -169,7 +170,7 @@ def register_routes(app):
 
         crawler_status = "Running" if crawler_state.is_running() else "Stopped"
         mysql_info = get_mysql_info()
-        
+
         # Fetch latest profiles and companies
         try:
             mysql_manager.connect()
@@ -204,10 +205,10 @@ def register_routes(app):
                                companies_scanned=mysql_info['companies_scanned'])
 
     @app.route('/start_crawler', methods=['POST'])
-    async def start_crawler_route():
+    def start_crawler_route():
         try:
             if not crawler_state.is_running():
-                await start_crawler()
+                start_crawler()
                 flash('Crawler started successfully', 'success')
             else:
                 flash('Crawler is already running', 'info')
@@ -217,10 +218,10 @@ def register_routes(app):
         return redirect(url_for('index'))
 
     @app.route('/stop_crawler', methods=['POST'])
-    async def stop_crawler_route():
+    def stop_crawler_route():
         try:
             if crawler_state.is_running():
-                await stop_crawler()
+                stop_crawler()
                 flash('Crawler stopped successfully', 'success')
             else:
                 flash('Crawler is not running', 'info')

@@ -17,55 +17,66 @@ class LinkedInCrawler:
         self.nats_manager = nats_manager
         self.mysql_manager = mysql_manager
         self.linkedin_session = linkedin_session
-        self.company_crawler = CompanyCrawler(linkedin_session, nats_manager, mysql_manager.db_config)
-        self.people_crawler = PeopleCrawler(linkedin_session, nats_manager, mysql_manager.db_config)
-        self.loop = asyncio.get_event_loop()
+        self.company_crawler = CompanyCrawler(linkedin_session, nats_manager, mysql_manager)
+        self.people_crawler = PeopleCrawler(linkedin_session, nats_manager, mysql_manager)
+
+    async def run(self, crawler_state: CrawlerState):
+        try:
+            await self.nats_manager.connect()
+            
+            company_task = asyncio.create_task(self.process_company_queue(crawler_state))
+            people_task = asyncio.create_task(self.process_people_queue(crawler_state))
+            
+            await asyncio.gather(company_task, people_task)
+        except Exception as e:
+            log(f"Error in crawler run: {str(e)}", "error")
+        finally:
+            await self.cleanup()
+            crawler_state.set_stopped()
 
     async def process_company_queue(self, crawler_state):
-        await self.nats_manager.subscribe("linkedin_company_urls")
-
-        while not crawler_state.is_stop_requested():
+        async def company_message_handler(msg):
             try:
-                subject, message = await self.nats_manager.get_message("linkedin_company_urls", timeout=1)
-                if subject is None and message is None:
-                    # If queue is empty, try to use a seed profile
-                    seed_company = await self._get_seed_company()
-                    if seed_company:
-                        await self.crawl_company(seed_company, is_seed=True)
-                    continue
-
-                # Process the company message
-                log(f"Received company message: {message}")
-                data = json.loads(message)
+                data = json.loads(msg.data.decode())
                 company_url = data.get('url')
                 is_seed = data.get('is_seed', False)
                 await self.crawl_company(company_url, is_seed)
-
             except Exception as e:
                 log(f"Error processing company message: {str(e)}", "error")
 
-    async def process_people_queue(self, crawler_state):
-        await self.nats_manager.subscribe("linkedin_people_urls")
+        await self.nats_manager.subscribe("linkedin_company_urls", company_message_handler)
 
         while not crawler_state.is_stop_requested():
             try:
-                subject, message = await self.nats_manager.get_message("linkedin_people_urls", timeout=1)
-                if subject is None and message is None:
-                    # If queue is empty, try to use a seed profile
-                    seed_person = await self._get_seed_person()
-                    if seed_person:
-                        await self.crawl_person(seed_person, is_seed=True)
-                    continue
+                # If queue is empty, try to use a seed profile
+                seed_company = await self._get_seed_company()
+                if seed_company:
+                    await self.crawl_company(seed_company, is_seed=True)
+                await asyncio.sleep(1)  # Add a small delay to prevent overwhelming the system
+            except Exception as e:
+                log(f"Error in company queue processing: {str(e)}", "error")
 
-                # Process the people message
-                log(f"Received people message: {message}")
-                data = json.loads(message)
+    async def process_people_queue(self, crawler_state):
+        async def people_message_handler(msg):
+            try:
+                data = json.loads(msg.data.decode())
                 person_url = data.get('url')
                 is_seed = data.get('is_seed', False)
                 await self.crawl_person(person_url, is_seed)
-
             except Exception as e:
                 log(f"Error processing people message: {str(e)}", "error")
+
+        await self.nats_manager.subscribe("linkedin_people_urls", people_message_handler)
+
+        while not crawler_state.is_stop_requested():
+            try:
+                # If queue is empty, try to use a seed profile
+                seed_person = await self._get_seed_person()
+                if seed_person:
+                    await self.crawl_person(seed_person, is_seed=True)
+                await asyncio.sleep(1)  # Add a small delay to prevent overwhelming the system
+            except Exception as e:
+                log(f"Error in people queue processing: {str(e)}", "error")
 
     async def crawl_company(self, company_url, is_seed=False):
         try:
@@ -74,6 +85,8 @@ class LinkedInCrawler:
             if company:
                 log(f"Successfully crawled company: {company.name}")
                 increment_companies_scanned()
+                if is_seed:
+                    await self._update_seed_url_crawled(company_url)
             else:
                 log(f"Company already crawled or not found: {company_url}")
         except Exception as e:
@@ -86,70 +99,12 @@ class LinkedInCrawler:
             if person:
                 log(f"Successfully crawled person: {person.name}")
                 increment_profiles_scanned()
+                if is_seed:
+                    await self._update_seed_url_crawled(person_url)
             else:
                 log(f"Person already crawled or not found: {person_url}")
         except Exception as e:
             log(f"Error crawling person {person_url}: {str(e)}", "error")
-
-    async def publish_new_url(self, url_type, url):
-        subject = f"linkedin_{url_type}_urls"
-        message = json.dumps({"url": url})
-        await self.nats_manager.publish(subject, message)
-
-    async def is_subscription_empty(self, subject):
-        try:
-            _, message = await self.nats_manager.get_message(subject, timeout=1)
-            if message is None:
-                return True
-            else:
-                # If we got a message, put it back in the queue
-                await self.nats_manager.publish(subject, message)
-                return False
-        except Exception as e:
-            log(f"Error checking subscription {subject}: {str(e)}", "error")
-            return True  # Assume empty if there's an error
-
-    async def seed_initial_urls(self):
-        initial_profile_url = os.getenv('INITIAL_PROFILE_URL')
-        initial_company_url = os.getenv('INITIAL_COMPANY_URL')
-
-        if initial_profile_url and await self.is_subscription_empty("linkedin_people_urls"):
-            await self.publish_new_url('people', initial_profile_url)
-            log(f"Seeded initial profile URL: {initial_profile_url}")
-
-        if initial_company_url and await self.is_subscription_empty("linkedin_company_urls"):
-            await self.publish_new_url('company', initial_company_url)
-            log(f"Seeded initial company URL: {initial_company_url}")
-
-    async def run(self, crawler_state):
-        try:
-            await self.nats_manager.connect()
-            
-            # Subscribe to the subjects before seeding
-            await self.nats_manager.subscribe("linkedin_company_urls")
-            await self.nats_manager.subscribe("linkedin_people_urls")
-            
-            # Seed the initial URLs if needed
-            await self.seed_initial_urls()
-
-            company_task = self.loop.create_task(self.process_company_queue(crawler_state))
-            people_task = self.loop.create_task(self.process_people_queue(crawler_state))
-            
-            while not crawler_state.is_stop_requested():
-                await asyncio.sleep(1)
-                if company_task.done() and people_task.done():
-                    break
-
-            if crawler_state.is_stop_requested():
-                company_task.cancel()
-                people_task.cancel()
-                
-            await asyncio.gather(company_task, people_task, return_exceptions=True)
-        except Exception as e:
-            log(f"Error in crawler run: {str(e)}", "error")
-        finally:
-            await self.cleanup()
-            crawler_state.set_stopped()
 
     async def cleanup(self):
         try:
@@ -158,66 +113,54 @@ class LinkedInCrawler:
             await self.people_crawler.close()
         except Exception as e:
             log(f"Error during cleanup: {str(e)}", "error")
-        finally:
-            log("Crawler stopped")
 
     async def _get_seed_company(self):
-        mysql_manager = MySQLManager()
         try:
-            mysql_manager.connect()
+            # First, check if there are any messages in the NATS queue
+            response = await self.nats_manager.request("linkedin_company_urls", b'', timeout=1)
+            if response:
+                data = json.loads(response.data.decode())
+                return data.get('url')
+
+            # If NATS queue is empty, fetch from MySQL
             query = """
-                SELECT url FROM seed_urls
-                WHERE type = 'company' AND (last_crawled IS NULL OR last_crawled < DATE_SUB(NOW(), INTERVAL 1 DAY))
-                ORDER BY RAND()
-                LIMIT 1
+                SELECT url FROM seed_urls 
+                WHERE type = 'company' AND last_crawled IS NULL
+                ORDER BY RAND() LIMIT 1
             """
-            result = mysql_manager.execute_query(query)
+            result = await self.mysql_manager.execute_query(query)
             if result:
                 return result[0]['url']
-            return None
-        finally:
-            mysql_manager.disconnect()
+        except Exception as e:
+            log(f"Error getting seed company: {str(e)}", "error")
+        return None
 
     async def _get_seed_person(self):
-        mysql_manager = MySQLManager()
         try:
-            mysql_manager.connect()
+            # First, check if there are any messages in the NATS queue
+            response = await self.nats_manager.request("linkedin_people_urls", b'', timeout=1)
+            if response:
+                data = json.loads(response.data.decode())
+                return data.get('url')
+
+            # If NATS queue is empty, fetch from MySQL
             query = """
-                SELECT url FROM seed_urls
-                WHERE type = 'person' AND (last_crawled IS NULL OR last_crawled < DATE_SUB(NOW(), INTERVAL 1 DAY))
-                ORDER BY RAND()
-                LIMIT 1
+                SELECT url FROM seed_urls 
+                WHERE type = 'person' AND last_crawled IS NULL
+                ORDER BY RAND() LIMIT 1
             """
-            result = mysql_manager.execute_query(query)
+            result = await self.mysql_manager.execute_query(query)
             if result:
                 return result[0]['url']
-            return None
-        finally:
-            mysql_manager.disconnect()
+        except Exception as e:
+            log(f"Error getting seed person: {str(e)}", "error")
+        return None
 
-def run_crawler(crawler_state: CrawlerState):
-    try:
-        email = os.getenv('LINKEDIN_EMAIL')
-        password = os.getenv('LINKEDIN_PASSWORD')
-        
-        if not email or not password:
-            raise ValueError("LinkedIn credentials not found in environment variables")
+    async def _update_seed_url_crawled(self, url):
+        query = """
+            UPDATE seed_urls 
+            SET last_crawled = CURRENT_TIMESTAMP 
+            WHERE url = %s
+        """
+        await self.mysql_manager.execute_query(query, (url,))
 
-        linkedin_session = LinkedInSession(email, password)
-        linkedin_session.start()
-
-        driver = linkedin_session.get_driver()
-
-        crawler = LinkedInCrawler(NatsManager(), MySQLManager(), linkedin_session)
-        asyncio.run(crawler.run(crawler_state))
-        
-    except Exception as e:
-        log(f"Error in crawler: {str(e)}", "error")
-    finally:
-        if linkedin_session:
-            linkedin_session.close()
-        crawler_state.set_stopped()
-        log("Crawler stopped")
-
-# Make sure to export both LinkedInCrawler and run_crawler
-__all__ = ['LinkedInCrawler', 'run_crawler']

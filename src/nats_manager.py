@@ -65,3 +65,16 @@ class NatsManager:
 
     def is_connected(self):
         return self._nc is not None and self._nc.is_connected
+
+    async def request(self, subject, payload, timeout=1):
+        if not self.is_connected():
+            await self.connect()
+        try:
+            response = await self._nc.request(subject, payload.encode(), timeout=timeout)
+            return response
+        except TimeoutError:
+            log(f"Request to {subject} timed out", "warning")
+            return None
+        except Exception as e:
+            log(f"Error making request to NATS: {str(e)}", "error")
+            raise
