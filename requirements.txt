@@ -22,7 +22,7 @@ python-dotenv==1.0.1
 
 # Selenium (for web scraping)
 selenium==4.24.0
-webdriver-manager==3.9.1
+webdriver-manager==4.0.2
 
 # Testing (optional, remove if not using)
 pytest==8.3.2
