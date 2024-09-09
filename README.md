@@ -1,23 +1,23 @@
-# LinkedIn Crawler
+# 🕸️ LinkedIn Crawler
 
-## Description
+## 📝 Description
 This project is a sophisticated LinkedIn crawler designed to extract and analyze data from LinkedIn profiles and company pages. It uses a combination of web scraping techniques and the LinkedIn API to gather information, which is then stored and processed for various analytical purposes.
 
 This project was developed entirely through AI-assisted programming, using prompts to generate and refine the code. The development process was facilitated by [Cursor](https://cursor.sh/), an AI-powered IDE that enhances coding productivity through intelligent code completion and generation.
 
-## AI-Assisted Development
+## 🤖 AI-Assisted Development
 - All code in this project was generated and refined using AI prompts.
 - The development process showcases the potential of AI-assisted programming in creating complex applications.
 - Cursor IDE was instrumental in streamlining the development workflow and providing intelligent coding assistance.
 
-## Recent Updates
+## 🆕 Recent Updates
 - Added a CLI utility for running single crawls
 - Updated to use the latest ChromeDriver version from Chrome for Testing
 - Improved error handling and logging throughout the application
 - Updated GitHub Actions workflow to use latest versions of actions/checkout (v4) and actions/setup-python (v5)
 - Integrated linkedin_scraper package for more robust profile scraping
 
-## Features
+## 🌟 Features
 - Asynchronous crawling of LinkedIn profiles and company pages
 - CLI utility for single profile/company crawls
 - Real-time data processing using NATS messaging system
@@ -26,7 +26,7 @@ This project was developed entirely through AI-assisted programming, using promp
 - WebSocket support for real-time updates
 - Dockerized application for easy deployment and scaling
 
-## Technologies Used
+## 🛠️ Technologies Used
 - Python 3.12
 - Flask (Web framework)
 - Flask-SocketIO (WebSocket support)
@@ -36,12 +36,12 @@ This project was developed entirely through AI-assisted programming, using promp
 - Docker (Containerization)
 - Gunicorn with eventlet worker (ASGI server)
 
-## Prerequisites
+## 📋 Prerequisites
 - Docker and Docker Compose
 - Python 3.12+
 - Chrome browser (for Selenium)
 
-## Setup and Installation
+## 🚀 Setup and Installation
 1. Clone the repository:
    ```
    git clone https://github.com/dodwmd/linkedin.git
@@ -66,7 +66,7 @@ This project was developed entirely through AI-assisted programming, using promp
 
 4. Access the web dashboard at `http://localhost:8080`
 
-## Usage
+## 📘 Usage
 ### Web Dashboard
 1. Start the crawler from the web dashboard
 2. Add target URLs for LinkedIn profiles or company pages

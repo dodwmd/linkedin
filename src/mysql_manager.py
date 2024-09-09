@@ -18,7 +18,7 @@ class MySQLManager:
         }
 
     async def connect(self):
-        if not self.pool:
+        if self.pool is None or self.pool.closed:
             try:
                 self.pool = await aiomysql.create_pool(**self.db_config)
                 log("Successfully connected to MySQL database")
@@ -30,10 +30,11 @@ class MySQLManager:
         if self.pool:
             self.pool.close()
             await self.pool.wait_closed()
+            self.pool = None
             log("MySQL connection closed")
 
     async def execute_query(self, query, params=None):
-        if not self.pool:
+        if self.pool is None or self.pool.closed:
             await self.connect()
         
         async with self.pool.acquire() as conn:

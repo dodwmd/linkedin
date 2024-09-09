@@ -21,9 +21,8 @@ socketio = None
 class CrawlerState:
     def __init__(self):
         self._running = False
-        self._stop_requested = threading.Event()
+        self._stop_requested = False
         self._lock = threading.Lock()
-        log("CrawlerState initialized")
 
     def is_running(self):
         with self._lock:
@@ -32,21 +31,20 @@ class CrawlerState:
     def set_running(self):
         with self._lock:
             self._running = True
-            self._stop_requested.clear()
-            log("Crawler state set to running")
+            self._stop_requested = False
 
     def set_stopped(self):
         with self._lock:
             self._running = False
-            self._stop_requested.clear()
-            log("Crawler state set to stopped")
-
-    def set_stop_requested(self):
-        self._stop_requested.set()
-        log("Stop requested for crawler")
+            self._stop_requested = False
 
     def is_stop_requested(self):
-        return self._stop_requested.is_set()
+        with self._lock:
+            return self._stop_requested
+
+    def set_stop_requested(self):
+        with self._lock:
+            self._stop_requested = True
 
 # Function to add log entry to queue
 def add_log_entry(message, level="info"):

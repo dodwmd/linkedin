@@ -20,11 +20,7 @@ docker_build(
         '.vscode',
         '.idea',
     ],
-    live_update=[
-        sync('src', '/app/src'),
-        sync('linkedin_scraper', '/app/linkedin_scraper'),
-        run('pip install -r requirements.txt', trigger='requirements.txt'),
-    ]
+    live_update=[],  # Remove live update
 )
 
 # Use docker-compose for local development
@@ -71,30 +67,20 @@ local_resource(
     trigger_mode=TRIGGER_MODE_MANUAL
 )
 
-# Add custom buttons to Tilt UI (using local_resource instead of cmd_button)
+# Add custom buttons to Tilt UI
 run_tests()
 run_linter()
 run_type_checker()
 
-# Enable hot reloading for the Flask app
-dc_resource('app', trigger_mode=TRIGGER_MODE_AUTO)
-
-# Add a new local_resource for linting
-local_resource(
-    'lint-check',
-    cmd='docker compose exec -w /app app flake8 src',
-    deps=['src'],
-    auto_init=False,
-    trigger_mode=TRIGGER_MODE_AUTO
+# Configure the app resource to rebuild and restart on file changes
+dc_resource('app', 
+    trigger_mode=TRIGGER_MODE_AUTO,
+    auto_init=True,
+    resource_deps=[],
 )
 
-# Add a new local_resource for type checking
-local_resource(
-    'type-check',
-    cmd='docker compose exec -w /app app mypy src',
-    deps=['src'],
-    auto_init=False,
-    trigger_mode=TRIGGER_MODE_AUTO
-)
+# Remove the lint-check and type-check resources
+# local_resource('lint-check', ...)
+# local_resource('type-check', ...)
 
 update_settings(max_parallel_updates=3)

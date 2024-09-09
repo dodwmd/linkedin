@@ -39,19 +39,42 @@ class PeopleCrawler:
             (name, about, experiences, interests, accomplishments,
             company, job_title, linkedin_url) 
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            AS new_values
             ON DUPLICATE KEY UPDATE
-            name = VALUES(name), about = VALUES(about), 
-            experiences = VALUES(experiences), interests = VALUES(interests),
-            accomplishments = VALUES(accomplishments), company = VALUES(company),
-            job_title = VALUES(job_title)
+            name = new_values.name, 
+            about = new_values.about, 
+            experiences = new_values.experiences, 
+            interests = new_values.interests,
+            accomplishments = new_values.accomplishments, 
+            company = new_values.company,
+            job_title = new_values.job_title
         """
         values = (
-            person.name, person.about, json.dumps(person.experiences),
-            json.dumps(person.interests), json.dumps(person.accomplishments),
-            person.company, person.job_title, person.linkedin_url
+            person.name,
+            person.about,
+            json.dumps(self._serialize_experiences(person.experiences)),
+            json.dumps(person.interests),
+            json.dumps(person.accomplishments),
+            person.company,
+            person.job_title,
+            person.linkedin_url
         )
         await self.mysql_manager.execute_query(query, values)
         await self._emit_crawler_update(person)
+
+    def _serialize_experiences(self, experiences):
+        serialized = []
+        for exp in experiences:
+            serialized.append({
+                'position_title': exp.position_title,
+                'company': exp.institution_name,
+                'date_range': f"{exp.from_date} - {exp.to_date}",
+                'description': exp.description,
+                'location': exp.location,
+                'duration': exp.duration,
+                'linkedin_url': exp.linkedin_url
+            })
+        return serialized
 
     async def _emit_crawler_update(self, person):
         update_data = {

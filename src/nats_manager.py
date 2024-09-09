@@ -9,17 +9,9 @@ import asyncio
 load_dotenv()
 
 class NatsManager:
-    _instance = None
-
     def __init__(self):
         self._nc = None
         self._nats_url = os.getenv('NATS_URL', 'nats://nats:4222')
-
-    @classmethod
-    def get_instance(cls):
-        if cls._instance is None:
-            cls._instance = cls()
-        return cls._instance
 
     async def connect(self):
         if not self.is_connected():

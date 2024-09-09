@@ -13,7 +13,7 @@ from shared_data import log
 load_dotenv()
 
 async def run_single_crawl(url):
-    nats_manager = NatsManager.get_instance()
+    nats_manager = NatsManager()
     mysql_manager = MySQLManager()
     linkedin_session = None
 

@@ -8,6 +8,8 @@ from linkedin_session import LinkedInSession
 import asyncio
 import json
 from dotenv import load_dotenv
+import threading
+import traceback
 
 # Load environment variables from .env file
 load_dotenv()
@@ -20,63 +22,89 @@ class LinkedInCrawler:
         self.company_crawler = CompanyCrawler(linkedin_session, nats_manager, mysql_manager)
         self.people_crawler = PeopleCrawler(linkedin_session, nats_manager, mysql_manager)
 
-    async def run(self, crawler_state: CrawlerState):
+    async def run(self, crawler_state: CrawlerState, stop_event: threading.Event):
         try:
+            log("Crawler run started")
+            log("Connecting to NATS")
             await self.nats_manager.connect()
+            log("Connected to NATS")
             
-            company_task = asyncio.create_task(self.process_company_queue(crawler_state))
-            people_task = asyncio.create_task(self.process_people_queue(crawler_state))
+            log("Creating company task")
+            company_task = asyncio.create_task(self.process_company_queue(crawler_state, stop_event))
+            log("Creating people task")
+            people_task = asyncio.create_task(self.process_people_queue(crawler_state, stop_event))
             
-            await asyncio.gather(company_task, people_task)
+            log("Tasks created, waiting for completion")
+            while not crawler_state.is_stop_requested() and not stop_event.is_set():
+                done, pending = await asyncio.wait([company_task, people_task], timeout=1)
+                
+                for task in done:
+                    try:
+                        result = task.result()
+                        log(f"Task completed: {result}")
+                    except Exception as e:
+                        log(f"Task raised an exception: {str(e)}", "error")
+                        log(f"Traceback: {traceback.format_exc()}", "error")
+                
+                if not pending:
+                    log("All tasks completed")
+                    break
+            
+            if crawler_state.is_stop_requested() or stop_event.is_set():
+                log("Stop requested, cancelling pending tasks")
+                for task in pending:
+                    task.cancel()
+                    try:
+                        await task
+                    except asyncio.CancelledError:
+                        log(f"Task was cancelled: {task}")
+        except asyncio.CancelledError:
+            log("Crawler run was cancelled")
         except Exception as e:
             log(f"Error in crawler run: {str(e)}", "error")
+            log(f"Traceback: {traceback.format_exc()}", "error")
         finally:
+            log("Cleaning up crawler")
             await self.cleanup()
             crawler_state.set_stopped()
+            stop_event.set()
+            log("Crawler run finished")
 
-    async def process_company_queue(self, crawler_state):
-        async def company_message_handler(msg):
+    async def process_company_queue(self, crawler_state: CrawlerState, stop_event: threading.Event):
+        log("Starting process_company_queue")
+        while not crawler_state.is_stop_requested() and not stop_event.is_set():
             try:
-                data = json.loads(msg.data.decode())
-                company_url = data.get('url')
-                is_seed = data.get('is_seed', False)
-                await self.crawl_company(company_url, is_seed)
-            except Exception as e:
-                log(f"Error processing company message: {str(e)}", "error")
-
-        await self.nats_manager.subscribe("linkedin_company_urls", company_message_handler)
-
-        while not crawler_state.is_stop_requested():
-            try:
-                # If queue is empty, try to use a seed profile
                 seed_company = await self._get_seed_company()
                 if seed_company:
                     await self.crawl_company(seed_company, is_seed=True)
-                await asyncio.sleep(1)  # Add a small delay to prevent overwhelming the system
+                else:
+                    await asyncio.sleep(1)  # Sleep if no seed company found
+                
+                # Check for stop request more frequently
+                if crawler_state.is_stop_requested() or stop_event.is_set():
+                    log("Stop requested, exiting company queue processing")
+                    break
             except Exception as e:
                 log(f"Error in company queue processing: {str(e)}", "error")
+        log("Company queue processing finished")
 
-    async def process_people_queue(self, crawler_state):
-        async def people_message_handler(msg):
+    async def process_people_queue(self, crawler_state: CrawlerState, stop_event: threading.Event):
+        log("Starting process_people_queue")
+        while not crawler_state.is_stop_requested() and not stop_event.is_set():
             try:
-                data = json.loads(msg.data.decode())
-                person_url = data.get('url')
-                is_seed = data.get('is_seed', False)
-                await self.crawl_person(person_url, is_seed)
-            except Exception as e:
-                log(f"Error processing people message: {str(e)}", "error")
-
-        await self.nats_manager.subscribe("linkedin_people_urls", people_message_handler)
-
-        while not crawler_state.is_stop_requested():
-            try:
-                # If queue is empty, try to use a seed profile
                 seed_person = await self._get_seed_person()
                 if seed_person:
                     await self.crawl_person(seed_person, is_seed=True)
-                await asyncio.sleep(1)  # Add a small delay to prevent overwhelming the system
+                else:
+                    await asyncio.sleep(1)  # Sleep if no seed person found
+                
+                # Check for stop request more frequently
+                if crawler_state.is_stop_requested() or stop_event.is_set():
+                    log("Stop requested, exiting people queue processing")
+                    break
             except Exception as e:
                 log(f"Error in people queue processing: {str(e)}", "error")
+        log("People queue processing finished")
 
     async def crawl_company(self, company_url, is_seed=False):
         try:
