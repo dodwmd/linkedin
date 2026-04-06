@@ -1,6 +1,6 @@
 # Web Framework
 flask==3.0.3
-flask-cors==5.0.0
+flask-cors==5.0.1
 
 # ASGI Server and WebSocket Support
 gunicorn==23.0.0
